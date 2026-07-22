@@ -29,7 +29,7 @@ export function subscribePeople(onChange) {
   };
 }
 
-export async function addPerson({ name, birthYear, deathYear, location, founder }) {
+export async function addPerson({ name, birthYear, deathYear, location, founder, photoUrl }) {
   const people = readAll();
   const id = uid();
   people.push({
@@ -39,6 +39,7 @@ export async function addPerson({ name, birthYear, deathYear, location, founder 
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
     founder: !!founder,
+    photoUrl: photoUrl ?? null,
     parentIds: [],
     spouses: [],
     siblingIds: [],
@@ -48,7 +49,7 @@ export async function addPerson({ name, birthYear, deathYear, location, founder 
   return id;
 }
 
-export async function updatePersonDetails(id, { name, birthYear, deathYear, location }) {
+export async function updatePersonDetails(id, { name, birthYear, deathYear, location, photoUrl }) {
   const people = readAll();
   const p = people.find((p) => p.id === id);
   if (!p) return;
@@ -57,6 +58,7 @@ export async function updatePersonDetails(id, { name, birthYear, deathYear, loca
     birthYear: birthYear ?? null,
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
+    photoUrl: photoUrl ?? null,
   });
   writeAll(people);
 }

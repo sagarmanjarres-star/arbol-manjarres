@@ -5,7 +5,7 @@
 // that a full rebuild is simpler and safer than incremental DOM patching.
 
 export const CARD_W = 220;
-export const CARD_H = 118;
+export const CARD_H = 128;
 const H_GAP = 48;
 const V_GAP = 130;
 const MARGIN = 60;
@@ -259,9 +259,14 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     const years = fmtYears(p);
     card.innerHTML = `
       ${p.founder ? '<div class="founder-badge">⭐ Fundador del árbol</div>' : ''}
-      <div class="person-name">${escapeHtml(p.name)}</div>
-      ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
-      ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
+      <div class="person-card-body">
+        ${p.photoUrl ? `<img class="person-photo" src="${p.photoUrl}" alt="">` : ''}
+        <div class="person-info">
+          <div class="person-name">${escapeHtml(p.name)}</div>
+          ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
+          ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
+        </div>
+      </div>
     `;
     card.addEventListener('click', () => onSelectPerson && onSelectPerson(p.id));
     wrapper.appendChild(card);

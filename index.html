@@ -26,6 +26,7 @@
 
     <button id="printBtn" class="btn btn-secondary btn-big">🖨️ Imprimir árbol</button>
     <button id="savePdfBtn" class="btn btn-secondary btn-big">💾 Guardar como PDF</button>
+    <button id="printA3Btn" class="btn btn-secondary btn-big">📄 Preparar para imprimir en A3</button>
   </div>
 
   <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
@@ -64,6 +65,24 @@
       <div class="modal-actions">
         <button id="pdfTipCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
         <button id="pdfTipContinueBtn" class="btn btn-primary btn-big">Entendido, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- A3 print instructions -->
+  <div id="a3TipModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="a3TipTitle">
+      <h2 id="a3TipTitle">Preparar para imprimir en A3</h2>
+      <p>Esto arma <strong>todo el árbol en una sola hoja</strong>, pensado para llevarlo a una imprenta y pedir una copia en tamaño A3. Al continuar se abrirá la ventana de impresión. Ahí:</p>
+      <ol class="pdf-tip-steps">
+        <li>Donde dice <strong>"Destino"</strong> o <strong>"Impresora"</strong>, elige <strong>"Guardar como PDF"</strong>.</li>
+        <li>Si aparece una opción de <strong>tamaño de papel</strong>, elige <strong>A3</strong> (si no aparece, no importa — el PDF ya viene en ese tamaño).</li>
+        <li>Presiona <strong>Guardar</strong> — por ejemplo, en el <strong>Escritorio</strong>.</li>
+      </ol>
+      <p>Luego lleva ese archivo a la imprenta y pide que lo impriman en A3, a tamaño real (100%).</p>
+      <div class="modal-actions">
+        <button id="a3TipCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="a3TipContinueBtn" class="btn btn-primary btn-big">Entendido, continuar</button>
       </div>
     </div>
   </div>

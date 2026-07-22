@@ -15,12 +15,17 @@ const saveStatus = document.getElementById('saveStatus');
 const addPersonBtn = document.getElementById('addPersonBtn');
 const printBtn = document.getElementById('printBtn');
 const savePdfBtn = document.getElementById('savePdfBtn');
+const printA3Btn = document.getElementById('printA3Btn');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 
 const pdfTipModal = document.getElementById('pdfTipModal');
 const pdfTipContinueBtn = document.getElementById('pdfTipContinueBtn');
 const pdfTipCancelBtn = document.getElementById('pdfTipCancelBtn');
+
+const a3TipModal = document.getElementById('a3TipModal');
+const a3TipContinueBtn = document.getElementById('a3TipContinueBtn');
+const a3TipCancelBtn = document.getElementById('a3TipCancelBtn');
 
 const personModal = document.getElementById('personModal');
 const personModalTitle = document.getElementById('personModalTitle');
@@ -209,6 +214,12 @@ function openPersonModal({ mode, personId }) {
         <label for="fLocation">Lugar</label>
         <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
       </div>
+      <div class="field">
+        <label for="fPhotoFile">Foto (opcional)</label>
+        <div id="photoPreviewWrap" class="photo-preview-wrap"></div>
+        <input type="file" id="fPhotoFile" accept="image/*">
+        <button type="button" id="removePhotoBtn" class="btn-link" hidden>Quitar foto</button>
+      </div>
 
       ${editing ? `<div class="field"><label>Relaciones actuales</label>${relationshipListHtml(personId)}</div>` : ''}
 
@@ -253,7 +264,74 @@ function openPersonModal({ mode, personId }) {
     });
   }
 
+  _pendingPhotoDataUrl = p?.photoUrl || null;
+  renderPhotoPreview();
+
+  document.getElementById('fPhotoFile').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      _pendingPhotoDataUrl = await resizePhotoToDataUrl(file);
+    } catch (err) {
+      alert('No se pudo procesar esa foto. Intenta con otra.');
+      return;
+    }
+    renderPhotoPreview();
+  });
+
+  document.getElementById('removePhotoBtn').addEventListener('click', () => {
+    _pendingPhotoDataUrl = null;
+    document.getElementById('fPhotoFile').value = '';
+    renderPhotoPreview();
+  });
+
   personModal.hidden = false;
+}
+
+let _pendingPhotoDataUrl = null;
+
+function renderPhotoPreview() {
+  const wrap = document.getElementById('photoPreviewWrap');
+  const removeBtn = document.getElementById('removePhotoBtn');
+  if (!wrap) return;
+  wrap.innerHTML = _pendingPhotoDataUrl
+    ? `<img src="${_pendingPhotoDataUrl}" class="photo-preview" alt="">`
+    : '<div class="photo-preview photo-preview-empty">Sin foto</div>';
+  if (removeBtn) removeBtn.hidden = !_pendingPhotoDataUrl;
+}
+
+// Shrinks a chosen photo to a small JPEG data URL before saving, so a
+// person doc (and the realtime snapshot listener payload) stays tiny —
+// Firestore documents cap out at 1MB and this app has no file storage
+// backend, so the photo lives inline in the document.
+async function resizePhotoToDataUrl(file, maxDim = 480, quality = 0.75) {
+  const bitmap = await loadImageBitmap(file);
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+  if (dataUrl.length > 900_000) throw new Error('photo too large');
+  return dataUrl;
+}
+
+async function loadImageBitmap(file) {
+  if (window.createImageBitmap) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch {
+      // fall through to the <img> based path below
+    }
+  }
+  return await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
 }
 
 function closePersonModal() {
@@ -291,10 +369,12 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const deathYear = parseIntOrNull(document.getElementById('fDeath').value);
   const location = document.getElementById('fLocation').value.trim();
 
+  const photoUrl = _pendingPhotoDataUrl;
+
   if (editing) {
-    await updatePersonDetails(personId, { name, birthYear, deathYear, location });
+    await updatePersonDetails(personId, { name, birthYear, deathYear, location, photoUrl });
   } else {
-    const newId = await addPerson({ name, birthYear, deathYear, location, founder: isFirstPerson });
+    const newId = await addPerson({ name, birthYear, deathYear, location, founder: isFirstPerson, photoUrl });
     await applyRelationshipFromForm(newId);
   }
   flashSaved();
@@ -422,6 +502,25 @@ document.addEventListener('click', (e) => {
 
 const PRINT_HEADER_H_PX = 56; // must match the header block built below
 
+// 'a4' is the default multi-page paginated export; 'a3' is the print-shop
+// export triggered by printA3Btn — always one sheet, sized for A3 landscape.
+let printMode = 'a4';
+let printPageSizeStyleEl = null;
+
+// @page rules can't be scoped with a class selector, so to get a single A3
+// sheet we inject a plain <style> with a later @page block right before
+// printing — the later rule in document order wins over style.css's default
+// A4 @page — then remove it again once the print/PDF flow is done.
+function applyPrintPageSize(mode) {
+  printPageSizeStyleEl?.remove();
+  printPageSizeStyleEl = null;
+  if (mode === 'a3') {
+    printPageSizeStyleEl = document.createElement('style');
+    printPageSizeStyleEl.textContent = '@page { size: A3 landscape; margin: 10mm; }';
+    document.head.appendChild(printPageSizeStyleEl);
+  }
+}
+
 // Builds one .print-page per entry from computePrintPages, each a clone of
 // the already-rendered tree canvas cropped (via overflow:hidden) and
 // shifted/scaled so only that page's slice of the diagram shows. This runs
@@ -431,7 +530,12 @@ function buildPrintPages() {
   const canvas = document.querySelector('.tree-canvas');
   if (!canvas) return;
 
-  const { scale, pages } = computePrintPages(people, PRINT_HEADER_H_PX);
+  applyPrintPageSize(printMode);
+
+  const pageOptions = printMode === 'a3'
+    ? { pageWidthMm: 420, pageHeightMm: 297, forceSinglePage: true }
+    : {};
+  const { scale, pages } = computePrintPages(people, PRINT_HEADER_H_PX, pageOptions);
 
   const root = document.createElement('div');
   root.id = 'printPagesRoot';
@@ -469,15 +573,21 @@ function buildPrintPages() {
 function clearPrintPages() {
   document.getElementById('printPagesRoot')?.remove();
   treeContainer.classList.remove('print-hidden');
+  applyPrintPageSize('a4');
+  printMode = 'a4';
 }
 
 window.addEventListener('beforeprint', buildPrintPages);
 window.addEventListener('afterprint', clearPrintPages);
 
-printBtn.addEventListener('click', () => window.print());
+printBtn.addEventListener('click', () => {
+  printMode = 'a4';
+  window.print();
+});
 
 pdfTipContinueBtn.addEventListener('click', () => {
   pdfTipModal.hidden = true;
+  printMode = 'a4';
   window.print();
 });
 pdfTipCancelBtn.addEventListener('click', () => {
@@ -485,6 +595,18 @@ pdfTipCancelBtn.addEventListener('click', () => {
 });
 savePdfBtn.addEventListener('click', () => {
   pdfTipModal.hidden = false;
+});
+
+a3TipContinueBtn.addEventListener('click', () => {
+  a3TipModal.hidden = true;
+  printMode = 'a3';
+  window.print();
+});
+a3TipCancelBtn.addEventListener('click', () => {
+  a3TipModal.hidden = true;
+});
+printA3Btn.addEventListener('click', () => {
+  a3TipModal.hidden = false;
 });
 
 // ---------- Helpers ----------

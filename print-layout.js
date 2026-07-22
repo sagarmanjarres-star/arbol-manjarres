@@ -18,17 +18,28 @@ function mmToPx(mm) {
   return mm * (96 / 25.4);
 }
 
-export function computePrintPages(people, headerHeightPx = 0) {
+export function computePrintPages(people, headerHeightPx = 0, options = {}) {
+  const {
+    pageWidthMm = PAGE_W_MM,
+    pageHeightMm = PAGE_H_MM,
+    forceSinglePage = false, // for A3 print-shop export: always one sheet, no min-scale cutoff
+  } = options;
+
   const { rows, pos, canvasWidth, canvasHeight } = computeLayout(people);
 
-  const availW = mmToPx(PAGE_W_MM - PAGE_MARGIN_MM * 2);
-  const availH = mmToPx(PAGE_H_MM - PAGE_MARGIN_MM * 2) - headerHeightPx;
+  const availW = mmToPx(pageWidthMm - PAGE_MARGIN_MM * 2);
+  const availH = mmToPx(pageHeightMm - PAGE_MARGIN_MM * 2) - headerHeightPx;
 
   if (!rows.length) {
     return { scale: 1, pages: [{ xStart: 0, yStart: 0, xEnd: canvasWidth, yEnd: canvasHeight }] };
   }
 
   const naturalScale = Math.min(availW / canvasWidth, availH / canvasHeight, 1);
+
+  if (forceSinglePage) {
+    return { scale: naturalScale, pages: [{ xStart: 0, yStart: 0, xEnd: canvasWidth, yEnd: canvasHeight }] };
+  }
+
   if (naturalScale >= MIN_READABLE_SCALE) {
     return { scale: naturalScale, pages: [{ xStart: 0, yStart: 0, xEnd: canvasWidth, yEnd: canvasHeight }] };
   }
