@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Árbol de la Familia Manjarres</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-text">
+      <h1>🌳 El Árbol de la Familia Manjarres</h1>
+      <p class="subtitle">Creado con cariño por <strong>Delfín Manjarres</strong></p>
+    </div>
+    <div id="saveStatus" class="save-status" aria-live="polite"></div>
+  </header>
+
+  <div class="toolbar">
+    <button id="addPersonBtn" class="btn btn-primary btn-big">➕ Agregar persona</button>
+
+    <div class="search-box">
+      <input id="searchInput" type="text" placeholder="🔍 Buscar por nombre…" autocomplete="off">
+      <div id="searchResults" class="search-results" hidden></div>
+    </div>
+
+    <button id="printBtn" class="btn btn-secondary btn-big">🖨️ Imprimir árbol</button>
+    <button id="savePdfBtn" class="btn btn-secondary btn-big">💾 Guardar como PDF</button>
+  </div>
+
+  <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
+
+  <!-- Add / Edit person modal -->
+  <div id="personModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="personModalTitle">
+      <h2 id="personModalTitle">Agregar persona</h2>
+      <div id="personModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Confirm delete modal -->
+  <div id="confirmModal" class="modal-overlay" hidden>
+    <div class="modal modal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle">¿Eliminar a esta persona?</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-actions">
+        <button id="confirmCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="confirmDeleteBtn" class="btn btn-danger btn-big">Sí, eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF save instructions -->
+  <div id="pdfTipModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pdfTipTitle">
+      <h2 id="pdfTipTitle">Guardar como PDF</h2>
+      <p>Al continuar se abrirá la ventana de impresión. Ahí:</p>
+      <ol class="pdf-tip-steps">
+        <li>Donde dice <strong>"Destino"</strong> o <strong>"Impresora"</strong>, elige <strong>"Guardar como PDF"</strong> (o "Microsoft Print to PDF").</li>
+        <li>Elige dónde guardarlo — por ejemplo, el <strong>Escritorio</strong>.</li>
+        <li>Presiona <strong>Guardar</strong>.</li>
+      </ol>
+      <p>Luego podrás adjuntar ese archivo en un correo para la familia.</p>
+      <div class="modal-actions">
+        <button id="pdfTipCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="pdfTipContinueBtn" class="btn btn-primary btn-big">Entendido, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Undo toast -->
+  <div id="undoToast" class="undo-toast" hidden>
+    <span id="undoMessage"></span>
+    <button id="undoBtn" class="btn btn-secondary">Deshacer</button>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// This app has no login screen — every visitor with the link signs in
+// anonymously in the background (see firebase-init.js) purely so these
+// rules have an auth token to check. There's no per-user data split; the
+// whole "people" collection is the one shared family tree.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isPerson(data) {
+      return data.name is string && data.name.size() > 0
+        && data.name.size() <= 200
+        && (!('birthYear' in data) || data.birthYear == null || data.birthYear is int)
+        && (!('deathYear' in data) || data.deathYear == null || data.deathYear is int)
+        && (!('location' in data) || data.location is string)
+        && (!('parentIds' in data) || data.parentIds is list)
+        && (!('spouses' in data) || data.spouses is list)
+        && (!('siblingIds' in data) || data.siblingIds is list);
+    }
+
+    match /people/{personId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && isPerson(request.resource.data);
+      allow delete: if signedIn();
+    }
+  }
+}
