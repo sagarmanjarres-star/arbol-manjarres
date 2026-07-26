@@ -1,5 +1,5 @@
 // Shared "day/month/year, any of which may be unknown" formatting used by
-// both the tree cards (birth/death) and the relationship list (marriage).
+// the tree cards (birth/death).
 
 export const MONTHS_ES_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 export const MONTHS_ES_LONG = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];

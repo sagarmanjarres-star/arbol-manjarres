@@ -9,7 +9,7 @@ import {
 } from './store.js';
 import { renderTree } from './tree.js';
 import { computePrintPages } from './print-layout.js';
-import { MONTHS_ES_LONG, formatPartialDate } from './dates.js';
+import { MONTHS_ES_LONG } from './dates.js';
 
 const treeContainer = document.getElementById('treeContainer');
 const saveStatus = document.getElementById('saveStatus');
@@ -146,14 +146,6 @@ function relSubHtml(type, excludeId) {
           <label><input type="radio" name="spouseStatus" value="former"> Matrimonio anterior</label>
         </div>
       </div>
-      <div class="field">
-        <label>Fecha de matrimonio (opcional)</label>
-        <div class="date-parts">
-          <input type="number" id="relMarriageDay" placeholder="Día" min="1" max="31">
-          <select id="relMarriageMonth">${monthOptionsHtml()}</select>
-          <input type="number" id="relMarriageYear" placeholder="Año" min="1" max="9999">
-        </div>
-      </div>
     `;
   }
   if (type === 'sibling') {
@@ -180,9 +172,7 @@ function relationshipListHtml(personId) {
   }
   for (const s of p.spouses || []) {
     const statusLabel = s.status === 'former' ? 'matrimonio anterior' : 'actual';
-    const marriageDate = formatPartialDate(s.marriageDay, s.marriageMonth, s.marriageYear);
-    const dateSuffix = marriageDate ? ` — casados el ${marriageDate}` : '';
-    items.push({ label: `Esposo/a (${statusLabel}) de ${escapeHtml(personName(s.id))}${escapeHtml(dateSuffix)}`, onRemove: `removeSpouse('${s.id}')` });
+    items.push({ label: `Esposo/a (${statusLabel}) de ${escapeHtml(personName(s.id))}`, onRemove: `removeSpouse('${s.id}')` });
   }
   for (const sid of p.siblingIds || []) {
     items.push({ label: `Hermano/a de ${escapeHtml(personName(sid))}`, onRemove: `removeSibling('${sid}')` });
@@ -240,7 +230,11 @@ function openPersonModal({ mode, personId }) {
         <p class="field-hint">Deja todo en blanco si la persona vive.</p>
       </div>
       <div class="field">
-        <label for="fLocation">Lugar</label>
+        <label for="fDeathPlace">Lugar de fallecimiento</label>
+        <input type="text" id="fDeathPlace" placeholder="ciudad, país" value="${p ? escapeAttr(p.deathPlace || '') : ''}">
+      </div>
+      <div class="field">
+        <label for="fLocation">Lugar de nacimiento</label>
         <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
       </div>
       <div class="field">
@@ -387,12 +381,7 @@ async function applyRelationshipFromForm(personId) {
   } else if (relType === 'spouse') {
     const spouse = document.getElementById('relSpouse').value;
     const status = document.querySelector('input[name="spouseStatus"]:checked')?.value || 'current';
-    const marriageDate = {
-      marriageDay: parseIntInRange(document.getElementById('relMarriageDay').value, 1, 31),
-      marriageMonth: parseIntInRange(document.getElementById('relMarriageMonth').value, 1, 12),
-      marriageYear: parseIntOrNull(document.getElementById('relMarriageYear').value),
-    };
-    if (spouse) await addRelationship('spouse', personId, spouse, status, marriageDate);
+    if (spouse) await addRelationship('spouse', personId, spouse, status);
   } else if (relType === 'sibling') {
     const sibling = document.getElementById('relSibling').value;
     if (sibling) await addRelationship('sibling', personId, sibling);
@@ -409,12 +398,13 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const deathDay = parseIntInRange(document.getElementById('fDeathDay').value, 1, 31);
   const deathMonth = parseIntInRange(document.getElementById('fDeathMonth').value, 1, 12);
   const deathYear = parseIntOrNull(document.getElementById('fDeathYear').value);
+  const deathPlace = document.getElementById('fDeathPlace').value.trim();
   const location = document.getElementById('fLocation').value.trim();
   const occupation = document.getElementById('fOccupation').value.trim();
 
   const photoUrl = _pendingPhotoDataUrl;
 
-  const dateFields = { birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear };
+  const dateFields = { birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, deathPlace };
 
   if (editing) {
     await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl });

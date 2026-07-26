@@ -29,7 +29,7 @@ export function subscribePeople(onChange) {
   };
 }
 
-export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, occupation, founder, photoUrl }) {
+export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, founder, photoUrl }) {
   const people = readAll();
   const id = uid();
   people.push({
@@ -42,6 +42,7 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
     deathMonth: deathMonth ?? null,
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
+    deathPlace: (deathPlace || '').trim(),
     occupation: (occupation || '').trim(),
     founder: !!founder,
     photoUrl: photoUrl ?? null,
@@ -54,7 +55,7 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
   return id;
 }
 
-export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, occupation, photoUrl }) {
+export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, photoUrl }) {
   const people = readAll();
   const p = people.find((p) => p.id === id);
   if (!p) return;
@@ -67,13 +68,14 @@ export async function updatePersonDetails(id, { name, birthDay, birthMonth, birt
     deathMonth: deathMonth ?? null,
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
+    deathPlace: (deathPlace || '').trim(),
     occupation: (occupation || '').trim(),
     photoUrl: photoUrl ?? null,
   });
   writeAll(people);
 }
 
-export async function addRelationship(type, personId, relatedId, status, marriageDate) {
+export async function addRelationship(type, personId, relatedId, status) {
   const people = readAll();
   const byId = Object.fromEntries(people.map((p) => [p.id, p]));
   if (type === 'parent') {
@@ -84,8 +86,8 @@ export async function addRelationship(type, personId, relatedId, status, marriag
     addUnique(byId[personId], 'siblingIds', relatedId);
     addUnique(byId[relatedId], 'siblingIds', personId);
   } else if (type === 'spouse') {
-    setSpouse(byId[personId], relatedId, status || 'current', marriageDate || {});
-    setSpouse(byId[relatedId], personId, status || 'current', marriageDate || {});
+    setSpouse(byId[personId], relatedId, status || 'current');
+    setSpouse(byId[relatedId], personId, status || 'current');
   }
   writeAll(people);
 }
@@ -109,10 +111,9 @@ function addUnique(person, field, value) {
   if (!person[field].includes(value)) person[field].push(value);
 }
 
-function setSpouse(person, relatedId, status, marriageDate) {
-  const { marriageDay = null, marriageMonth = null, marriageYear = null } = marriageDate || {};
+function setSpouse(person, relatedId, status) {
   person.spouses = person.spouses.filter((s) => s.id !== relatedId);
-  person.spouses.push({ id: relatedId, status, marriageDay, marriageMonth, marriageYear });
+  person.spouses.push({ id: relatedId, status });
 }
 
 export async function deletePersonWithCleanup(id) {
