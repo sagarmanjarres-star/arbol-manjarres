@@ -6,11 +6,12 @@
 // Shape of a person doc:
 //   {
 //     name: string,
-//     birthYear: number|null,
-//     deathYear: number|null,
+//     birthDay, birthMonth, birthYear: number|null,
+//     deathDay, deathMonth, deathYear: number|null,
 //     location: string,
+//     occupation: string,
 //     parentIds: string[],
-//     spouses: { id: string, status: 'current'|'former' }[],
+//     spouses: { id: string, status: 'current'|'former', marriageDay, marriageMonth, marriageYear: number|null }[],
 //     siblingIds: string[],
 //     createdAt, updatedAt: server timestamps
 //   }
@@ -46,13 +47,18 @@ export function subscribePeople(onChange) {
   return () => unsub();
 }
 
-export async function addPerson({ name, birthYear, deathYear, location, founder, photoUrl }) {
+export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, occupation, founder, photoUrl }) {
   await authReady;
   const ref = await addDoc(peopleCol, {
     name: name.trim(),
+    birthDay: birthDay ?? null,
+    birthMonth: birthMonth ?? null,
     birthYear: birthYear ?? null,
+    deathDay: deathDay ?? null,
+    deathMonth: deathMonth ?? null,
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
+    occupation: (occupation || '').trim(),
     founder: !!founder,
     photoUrl: photoUrl ?? null,
     parentIds: [],
@@ -64,13 +70,18 @@ export async function addPerson({ name, birthYear, deathYear, location, founder,
   return ref.id;
 }
 
-export async function updatePersonDetails(id, { name, birthYear, deathYear, location, photoUrl }) {
+export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, occupation, photoUrl }) {
   await authReady;
   await updateDoc(doc(peopleCol, id), {
     name: name.trim(),
+    birthDay: birthDay ?? null,
+    birthMonth: birthMonth ?? null,
     birthYear: birthYear ?? null,
+    deathDay: deathDay ?? null,
+    deathMonth: deathMonth ?? null,
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
+    occupation: (occupation || '').trim(),
     photoUrl: photoUrl ?? null,
     updatedAt: serverTimestamp(),
   });
@@ -82,7 +93,7 @@ export async function updatePersonDetails(id, { name, birthYear, deathYear, loca
 //   'child'   — relatedId becomes a child of personId
 //   'spouse'  — personId and relatedId become spouses (status applies to both)
 //   'sibling' — personId and relatedId become siblings
-export async function addRelationship(type, personId, relatedId, status) {
+export async function addRelationship(type, personId, relatedId, status, marriageDate) {
   await authReady;
   if (type === 'parent') {
     await arrayAddUnique(personId, 'parentIds', relatedId);
@@ -92,7 +103,7 @@ export async function addRelationship(type, personId, relatedId, status) {
     await arrayAddUnique(personId, 'siblingIds', relatedId);
     await arrayAddUnique(relatedId, 'siblingIds', personId);
   } else if (type === 'spouse') {
-    await addSpouseLink(personId, relatedId, status || 'current');
+    await addSpouseLink(personId, relatedId, status || 'current', marriageDate || {});
   }
 }
 
@@ -128,15 +139,16 @@ async function arrayRemoveValue(id, field, value) {
   });
 }
 
-async function addSpouseLink(personId, relatedId, status) {
+async function addSpouseLink(personId, relatedId, status, marriageDate) {
+  const { marriageDay = null, marriageMonth = null, marriageYear = null } = marriageDate || {};
   const refA = doc(peopleCol, personId);
   const refB = doc(peopleCol, relatedId);
   await runTransaction(db, async (tx) => {
     const [snapA, snapB] = [await tx.get(refA), await tx.get(refB)];
     const spousesA = (snapA.data()?.spouses || []).filter((s) => s.id !== relatedId);
     const spousesB = (snapB.data()?.spouses || []).filter((s) => s.id !== personId);
-    tx.update(refA, { spouses: [...spousesA, { id: relatedId, status }], updatedAt: serverTimestamp() });
-    tx.update(refB, { spouses: [...spousesB, { id: personId, status }], updatedAt: serverTimestamp() });
+    tx.update(refA, { spouses: [...spousesA, { id: relatedId, status, marriageDay, marriageMonth, marriageYear }], updatedAt: serverTimestamp() });
+    tx.update(refB, { spouses: [...spousesB, { id: personId, status, marriageDay, marriageMonth, marriageYear }], updatedAt: serverTimestamp() });
   });
 }
 

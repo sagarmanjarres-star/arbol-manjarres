@@ -14,9 +14,14 @@ service cloud.firestore {
     function isPerson(data) {
       return data.name is string && data.name.size() > 0
         && data.name.size() <= 200
+        && (!('birthDay' in data) || data.birthDay == null || data.birthDay is int)
+        && (!('birthMonth' in data) || data.birthMonth == null || data.birthMonth is int)
         && (!('birthYear' in data) || data.birthYear == null || data.birthYear is int)
+        && (!('deathDay' in data) || data.deathDay == null || data.deathDay is int)
+        && (!('deathMonth' in data) || data.deathMonth == null || data.deathMonth is int)
         && (!('deathYear' in data) || data.deathYear == null || data.deathYear is int)
         && (!('location' in data) || data.location is string)
+        && (!('occupation' in data) || data.occupation is string)
         && (!('photoUrl' in data) || data.photoUrl == null || data.photoUrl is string)
         && (!('parentIds' in data) || data.parentIds is list)
         && (!('spouses' in data) || data.spouses is list)

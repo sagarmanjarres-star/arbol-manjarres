@@ -9,6 +9,7 @@ import {
 } from './store.js';
 import { renderTree } from './tree.js';
 import { computePrintPages } from './print-layout.js';
+import { MONTHS_ES_LONG, formatPartialDate } from './dates.js';
 
 const treeContainer = document.getElementById('treeContainer');
 const saveStatus = document.getElementById('saveStatus');
@@ -92,6 +93,14 @@ function optionsHtml(excludeIds = []) {
     .join('');
 }
 
+function monthOptionsHtml(selectedMonth) {
+  const opts = MONTHS_ES_LONG.map((label, i) => {
+    const value = i + 1;
+    return `<option value="${value}" ${selectedMonth === value ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+  return `<option value="">Mes</option>${opts}`;
+}
+
 function relTypeOptionsHtml() {
   return `
     <option value="">— Ninguna, persona nueva sin conexión —</option>
@@ -137,6 +146,14 @@ function relSubHtml(type, excludeId) {
           <label><input type="radio" name="spouseStatus" value="former"> Matrimonio anterior</label>
         </div>
       </div>
+      <div class="field">
+        <label>Fecha de matrimonio (opcional)</label>
+        <div class="date-parts">
+          <input type="number" id="relMarriageDay" placeholder="Día" min="1" max="31">
+          <select id="relMarriageMonth">${monthOptionsHtml()}</select>
+          <input type="number" id="relMarriageYear" placeholder="Año" min="1" max="9999">
+        </div>
+      </div>
     `;
   }
   if (type === 'sibling') {
@@ -163,7 +180,9 @@ function relationshipListHtml(personId) {
   }
   for (const s of p.spouses || []) {
     const statusLabel = s.status === 'former' ? 'matrimonio anterior' : 'actual';
-    items.push({ label: `Esposo/a (${statusLabel}) de ${escapeHtml(personName(s.id))}`, onRemove: `removeSpouse('${s.id}')` });
+    const marriageDate = formatPartialDate(s.marriageDay, s.marriageMonth, s.marriageYear);
+    const dateSuffix = marriageDate ? ` — casados el ${marriageDate}` : '';
+    items.push({ label: `Esposo/a (${statusLabel}) de ${escapeHtml(personName(s.id))}${escapeHtml(dateSuffix)}`, onRemove: `removeSpouse('${s.id}')` });
   }
   for (const sid of p.siblingIds || []) {
     items.push({ label: `Hermano/a de ${escapeHtml(personName(sid))}`, onRemove: `removeSibling('${sid}')` });
@@ -203,16 +222,30 @@ function openPersonModal({ mode, personId }) {
         <input type="text" id="fName" required value="${p ? escapeAttr(p.name) : ''}">
       </div>
       <div class="field">
-        <label for="fBirth">Año de nacimiento</label>
-        <input type="number" id="fBirth" placeholder="ej. 1958" value="${p?.birthYear ?? ''}">
+        <label>Fecha de nacimiento</label>
+        <div class="date-parts">
+          <input type="number" id="fBirthDay" placeholder="Día" min="1" max="31" value="${p?.birthDay ?? ''}">
+          <select id="fBirthMonth">${monthOptionsHtml(p?.birthMonth)}</select>
+          <input type="number" id="fBirthYear" placeholder="Año" min="1" max="9999" value="${p?.birthYear ?? ''}">
+        </div>
+        <p class="field-hint">Día y mes son opcionales — deja en blanco lo que no sepas.</p>
       </div>
       <div class="field">
-        <label for="fDeath">Año de fallecimiento</label>
-        <input type="number" id="fDeath" placeholder="(dejar en blanco si vive)" value="${p?.deathYear ?? ''}">
+        <label>Fecha de fallecimiento</label>
+        <div class="date-parts">
+          <input type="number" id="fDeathDay" placeholder="Día" min="1" max="31" value="${p?.deathDay ?? ''}">
+          <select id="fDeathMonth">${monthOptionsHtml(p?.deathMonth)}</select>
+          <input type="number" id="fDeathYear" placeholder="Año" min="1" max="9999" value="${p?.deathYear ?? ''}">
+        </div>
+        <p class="field-hint">Deja todo en blanco si la persona vive.</p>
       </div>
       <div class="field">
         <label for="fLocation">Lugar</label>
         <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
+      </div>
+      <div class="field">
+        <label for="fOccupation">Ocupación</label>
+        <input type="text" id="fOccupation" placeholder="ej. ingeniero, ama de casa, médico" value="${p ? escapeAttr(p.occupation || '') : ''}">
       </div>
       <div class="field">
         <label for="fPhotoFile">Foto (opcional)</label>
@@ -354,7 +387,12 @@ async function applyRelationshipFromForm(personId) {
   } else if (relType === 'spouse') {
     const spouse = document.getElementById('relSpouse').value;
     const status = document.querySelector('input[name="spouseStatus"]:checked')?.value || 'current';
-    if (spouse) await addRelationship('spouse', personId, spouse, status);
+    const marriageDate = {
+      marriageDay: parseIntInRange(document.getElementById('relMarriageDay').value, 1, 31),
+      marriageMonth: parseIntInRange(document.getElementById('relMarriageMonth').value, 1, 12),
+      marriageYear: parseIntOrNull(document.getElementById('relMarriageYear').value),
+    };
+    if (spouse) await addRelationship('spouse', personId, spouse, status, marriageDate);
   } else if (relType === 'sibling') {
     const sibling = document.getElementById('relSibling').value;
     if (sibling) await addRelationship('sibling', personId, sibling);
@@ -365,16 +403,23 @@ async function applyRelationshipFromForm(personId) {
 async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const name = document.getElementById('fName').value.trim();
   if (!name) return;
-  const birthYear = parseIntOrNull(document.getElementById('fBirth').value);
-  const deathYear = parseIntOrNull(document.getElementById('fDeath').value);
+  const birthDay = parseIntInRange(document.getElementById('fBirthDay').value, 1, 31);
+  const birthMonth = parseIntInRange(document.getElementById('fBirthMonth').value, 1, 12);
+  const birthYear = parseIntOrNull(document.getElementById('fBirthYear').value);
+  const deathDay = parseIntInRange(document.getElementById('fDeathDay').value, 1, 31);
+  const deathMonth = parseIntInRange(document.getElementById('fDeathMonth').value, 1, 12);
+  const deathYear = parseIntOrNull(document.getElementById('fDeathYear').value);
   const location = document.getElementById('fLocation').value.trim();
+  const occupation = document.getElementById('fOccupation').value.trim();
 
   const photoUrl = _pendingPhotoDataUrl;
 
+  const dateFields = { birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear };
+
   if (editing) {
-    await updatePersonDetails(personId, { name, birthYear, deathYear, location, photoUrl });
+    await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl });
   } else {
-    const newId = await addPerson({ name, birthYear, deathYear, location, founder: isFirstPerson, photoUrl });
+    const newId = await addPerson({ name, ...dateFields, location, occupation, founder: isFirstPerson, photoUrl });
     await applyRelationshipFromForm(newId);
   }
   flashSaved();
@@ -384,6 +429,11 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
 function parseIntOrNull(v) {
   const n = parseInt(v, 10);
   return Number.isFinite(n) ? n : null;
+}
+
+function parseIntInRange(v, min, max) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
 }
 
 // Exposed for the inline "Quitar" buttons in the relationship list.

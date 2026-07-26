@@ -4,6 +4,8 @@
 // on every data change — the tree is small enough (a family, not a census)
 // that a full rebuild is simpler and safer than incremental DOM patching.
 
+import { formatPartialDate } from './dates.js';
+
 export const CARD_W = 220;
 export const CARD_H = 128;
 const H_GAP = 48;
@@ -124,10 +126,12 @@ function computePositions(rows) {
 }
 
 function fmtYears(p) {
-  if (!p.birthYear && !p.deathYear) return '';
-  if (p.birthYear && p.deathYear) return `${p.birthYear} – ${p.deathYear}`;
-  if (p.birthYear) return `${p.birthYear} –`;
-  return `– ${p.deathYear}`;
+  const birth = formatPartialDate(p.birthDay, p.birthMonth, p.birthYear);
+  const death = formatPartialDate(p.deathDay, p.deathMonth, p.deathYear);
+  if (!birth && !death) return '';
+  if (birth && death) return `${birth} – ${death}`;
+  if (birth) return `${birth} –`;
+  return `– ${death}`;
 }
 
 function svgEl(tag, attrs) {
@@ -265,6 +269,7 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
           <div class="person-name">${escapeHtml(p.name)}</div>
           ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
           ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
+          ${p.occupation ? `<div class="person-occupation">💼 ${escapeHtml(p.occupation)}</div>` : ''}
         </div>
       </div>
     `;
