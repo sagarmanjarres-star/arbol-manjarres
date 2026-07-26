@@ -221,6 +221,10 @@ function openPersonModal({ mode, personId }) {
         <p class="field-hint">Día y mes son opcionales — deja en blanco lo que no sepas.</p>
       </div>
       <div class="field">
+        <label for="fLocation">Lugar de nacimiento</label>
+        <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
+      </div>
+      <div class="field">
         <label>Fecha de fallecimiento</label>
         <div class="date-parts">
           <input type="number" id="fDeathDay" placeholder="Día" min="1" max="31" value="${p?.deathDay ?? ''}">
@@ -232,10 +236,6 @@ function openPersonModal({ mode, personId }) {
       <div class="field">
         <label for="fDeathPlace">Lugar de fallecimiento</label>
         <input type="text" id="fDeathPlace" placeholder="ciudad, país" value="${p ? escapeAttr(p.deathPlace || '') : ''}">
-      </div>
-      <div class="field">
-        <label for="fLocation">Lugar de nacimiento</label>
-        <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
       </div>
       <div class="field">
         <label for="fOccupation">Ocupación</label>
