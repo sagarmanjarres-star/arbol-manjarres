@@ -1,86 +1,98 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Mahjong Sabotaje — Motor del Tablero</title>
-  <link rel="stylesheet" href="style.css?v=15">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Árbol de la Familia Manjarres</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>Mahjong Sabotaje</h1>
-    <label for="shape-select" class="shape-label">Forma:</label>
-    <select id="shape-select"></select>
-    <span id="game-timer">00:00</span>
-    <button id="new-game">Partida Nueva</button>
+
+  <header class="app-header">
+    <div class="header-text">
+      <h1>🌳 El Árbol de la Familia Manjarres</h1>
+      <p class="subtitle">Creado con cariño por <strong>Delfín Manjarres</strong></p>
+    </div>
+    <div id="saveStatus" class="save-status" aria-live="polite"></div>
   </header>
 
-  <div id="dedication">Hecho con cariño para Carol, Mara, Navarro y Piti 💛</div>
+  <div class="toolbar">
+    <button id="addPersonBtn" class="btn btn-primary btn-big">➕ Agregar persona</button>
 
-  <div id="firebase-status">Firebase: cargando…</div>
+    <div class="search-box">
+      <input id="searchInput" type="text" placeholder="🔍 Buscar por nombre…" autocomplete="off">
+      <div id="searchResults" class="search-results" hidden></div>
+    </div>
 
-  <!-- Room creation/joining test — proves two separate browsers can find
-       each other via Firestore. Doesn't touch the actual board yet. -->
-  <div id="matchmaking">
-    <button id="create-match" disabled>Crear partida</button>
-    <span>o</span>
-    <input id="room-code-input" placeholder="Código de sala" maxlength="5">
-    <button id="join-match" disabled>Unirse</button>
-    <span id="room-info"></span>
-    <span id="room-error"></span>
+    <button id="printBtn" class="btn btn-secondary btn-big">🖨️ Imprimir árbol</button>
+    <button id="savePdfBtn" class="btn btn-secondary btn-big">💾 Guardar como PDF</button>
+    <button id="printA3Btn" class="btn btn-secondary btn-big">📄 Preparar para imprimir en A3</button>
   </div>
 
-  <!-- Only "you" has a visible/playable board. "opp" is a status strip only
-       (name + tiles remaining + wins) — their actual board lives on their
-       own device; we never render or interact with it directly. See
-       renderOppStatus in main.js. -->
-  <main id="arena">
-    <section class="player-panel" data-player="you">
-      <div class="panel-header">
-        <input class="player-name-input" data-default="Tú" placeholder="Escribe tu nombre" maxlength="20">
-        <span class="remaining"></span>
-        <span class="wins"></span>
-        <span class="panel-message"></span>
-      </div>
-      <div class="tray-wrap">
-        <span class="tray-label">Espacio para guardar fichas:</span>
-        <div class="tray" data-owner="you"></div>
-      </div>
-      <!-- This is the flexible region: it gets whatever vertical space is
-           left after the header/tray/power-up-bar take theirs, and tile
-           size is computed (main.js computeTileSize) to fit the ENTIRE
-           board inside both its width and height — never needs scrolling,
-           tiles just shrink as needed, like a photo with object-fit:contain. -->
-      <div class="board-scroll">
-        <div class="board"></div>
-      </div>
-      <div class="powerup-bar" data-owner="you"></div>
-    </section>
+  <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
 
-    <section class="player-panel opponent-summary" data-player="opp">
-      <input class="player-name-input" data-default="Oponente" placeholder="Nombre del oponente" maxlength="20">
-      <span class="remaining"></span>
-      <span class="wins"></span>
-      <span class="panel-message"></span>
-    </section>
-  </main>
-
-  <div id="game-over-overlay" class="hidden">
-    <div id="game-over-card">
-      <p id="game-over-text"></p>
-      <button id="game-over-newgame">Partida Nueva</button>
+  <!-- Add / Edit person modal -->
+  <div id="personModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="personModalTitle">
+      <h2 id="personModalTitle">Agregar persona</h2>
+      <div id="personModalBody"></div>
     </div>
   </div>
 
-  <!-- ?v= is a manual cache-buster: python's http.server doesn't send
-       Cache-Control headers, so Chrome's heuristic disk cache can keep
-       serving an old copy of these files even after a hard reload. Bump
-       this number whenever engine.js/powerups.js/main.js change during
-       development. -->
-  <script src="engine.js?v=11"></script>
-  <script src="powerups.js?v=9"></script>
-  <script src="main.js?v=16"></script>
-  <script type="module" src="firebase-init.js?v=3"></script>
-  <script type="module" src="matchmaking.js?v=7"></script>
+  <!-- Confirm delete modal -->
+  <div id="confirmModal" class="modal-overlay" hidden>
+    <div class="modal modal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle">¿Eliminar a esta persona?</h2>
+      <p id="confirmMessage"></p>
+      <div class="modal-actions">
+        <button id="confirmCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="confirmDeleteBtn" class="btn btn-danger btn-big">Sí, eliminar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF save instructions -->
+  <div id="pdfTipModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pdfTipTitle">
+      <h2 id="pdfTipTitle">Guardar como PDF</h2>
+      <p>Al continuar se abrirá la ventana de impresión. Ahí:</p>
+      <ol class="pdf-tip-steps">
+        <li>Donde dice <strong>"Destino"</strong> o <strong>"Impresora"</strong>, elige <strong>"Guardar como PDF"</strong> (o "Microsoft Print to PDF").</li>
+        <li>Elige dónde guardarlo — por ejemplo, el <strong>Escritorio</strong>.</li>
+        <li>Presiona <strong>Guardar</strong>.</li>
+      </ol>
+      <p>Luego podrás adjuntar ese archivo en un correo para la familia.</p>
+      <div class="modal-actions">
+        <button id="pdfTipCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="pdfTipContinueBtn" class="btn btn-primary btn-big">Entendido, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- A3 print instructions -->
+  <div id="a3TipModal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="a3TipTitle">
+      <h2 id="a3TipTitle">Preparar para imprimir en A3</h2>
+      <p>Esto arma <strong>todo el árbol en una sola hoja</strong>, pensado para llevarlo a una imprenta y pedir una copia en tamaño A3. Al continuar se abrirá la ventana de impresión. Ahí:</p>
+      <ol class="pdf-tip-steps">
+        <li>Donde dice <strong>"Destino"</strong> o <strong>"Impresora"</strong>, elige <strong>"Guardar como PDF"</strong>.</li>
+        <li>Si aparece una opción de <strong>tamaño de papel</strong>, elige <strong>A3</strong> (si no aparece, no importa — el PDF ya viene en ese tamaño).</li>
+        <li>Presiona <strong>Guardar</strong> — por ejemplo, en el <strong>Escritorio</strong>.</li>
+      </ol>
+      <p>Luego lleva ese archivo a la imprenta y pide que lo impriman en A3, a tamaño real (100%).</p>
+      <div class="modal-actions">
+        <button id="a3TipCancelBtn" class="btn btn-secondary btn-big">Cancelar</button>
+        <button id="a3TipContinueBtn" class="btn btn-primary btn-big">Entendido, continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Undo toast -->
+  <div id="undoToast" class="undo-toast" hidden>
+    <span id="undoMessage"></span>
+    <button id="undoBtn" class="btn btn-secondary">Deshacer</button>
+  </div>
+
+  <script type="module" src="main.js"></script>
 </body>
 </html>
