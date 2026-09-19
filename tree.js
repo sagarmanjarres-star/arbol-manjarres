@@ -36,25 +36,21 @@ function computeLevels(people) {
 
   for (const p of people) levelOf(p.id, new Set());
 
-  // A spouse with no recorded parents has no real generation of their own,
-  // so pull them up to sit beside their partner instead of floating at the
-  // top as a false "generation 0". A spouse whose own parents ARE known
-  // keeps their blood-line level untouched — forcing them to their
-  // partner's row would detach their parent connector from their actual
-  // parents' row and make it look like it links to whoever happens to sit
-  // in between.
-  const hasKnownParents = (p) => (p.parentIds || []).some((pid) => byId.has(pid));
-
+  // A married couple is shown side by side on one row regardless of whose
+  // blood-line generation is technically deeper — that's how this family
+  // wants couples read (together, as the parents of their children), not
+  // split across rows. The parent-child connector below is responsible for
+  // making a couple's own parents still read correctly even when this pulls
+  // one of them a row or two further down than their birth generation.
   let changed = true;
   while (changed) {
     changed = false;
     for (const p of people) {
       for (const s of p.spouses || []) {
         if (!byId.has(s.id)) continue;
-        const sp = byId.get(s.id);
-        const max = Math.max(memo.get(p.id), memo.get(sp.id));
-        if (memo.get(p.id) < max && !hasKnownParents(p)) { memo.set(p.id, max); changed = true; }
-        if (memo.get(sp.id) < max && !hasKnownParents(sp)) { memo.set(sp.id, max); changed = true; }
+        const max = Math.max(memo.get(p.id), memo.get(s.id));
+        if (memo.get(p.id) !== max) { memo.set(p.id, max); changed = true; }
+        if (memo.get(s.id) !== max) { memo.set(s.id, max); changed = true; }
       }
     }
   }
@@ -263,12 +259,24 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     const parentPts = parentIds.map((id) => pos.get(id)).filter(Boolean);
     if (!parentPts.length) continue;
     const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
-    const anchorY = Math.max(...parentIds.map((id) => cardBottom(id)));
+    const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
+    const barY = bottomY + V_GAP / 2;
+
+    // When the two co-parents are each other's spouse, start the drop line
+    // at their marriage line instead of below their cards — anchorX already
+    // sits at that line's own midpoint (the gap between the two cards), so
+    // starting higher, at the marriage line itself, makes the drop read as
+    // growing out of it instead of floating in the empty gap below them.
+    const [parentA, parentB] = parentIds;
+    const areSpouses = parentIds.length === 2
+      && (byId.get(parentA).spouses || []).some((s) => s.id === parentB);
+    const dropStartY = areSpouses
+      ? (cardCenterY(parentA) + cardCenterY(parentB)) / 2
+      : bottomY;
 
     const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
-    const barY = anchorY + V_GAP / 2;
 
-    svg.appendChild(svgEl('line', { x1: anchorX, y1: anchorY, x2: anchorX, y2: barY, class: 'link link-descent' }));
+    svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: barY, class: 'link link-descent' }));
 
     const xs = childPts.map((pt) => pt.x + CARD_W / 2);
     const barLeft = Math.min(anchorX, ...xs);
