@@ -7,6 +7,10 @@
 import { formatPartialDate } from './dates.js';
 
 export const CARD_W = 220;
+// Cards grow taller than this when a person has multiple locations, a long
+// occupation, etc. It's only a fallback for the (rare) case a card can't be
+// measured — real layout uses each card's actual measured height so the
+// connector lines always meet the real edges instead of a guessed one.
 export const CARD_H = 128;
 const H_GAP = 48;
 const V_GAP = 130;
@@ -32,20 +36,25 @@ function computeLevels(people) {
 
   for (const p of people) levelOf(p.id, new Set());
 
-  // Pull married-in spouses (who may have no recorded parents) up to
-  // whatever level their partner landed on, so they sit side-by-side
-  // instead of floating up at the top as a false "generation 0".
+  // A spouse with no recorded parents has no real generation of their own,
+  // so pull them up to sit beside their partner instead of floating at the
+  // top as a false "generation 0". A spouse whose own parents ARE known
+  // keeps their blood-line level untouched — forcing them to their
+  // partner's row would detach their parent connector from their actual
+  // parents' row and make it look like it links to whoever happens to sit
+  // in between.
+  const hasKnownParents = (p) => (p.parentIds || []).some((pid) => byId.has(pid));
+
   let changed = true;
   while (changed) {
     changed = false;
     for (const p of people) {
       for (const s of p.spouses || []) {
         if (!byId.has(s.id)) continue;
-        const a = memo.get(p.id);
-        const b = memo.get(s.id);
-        const max = Math.max(a, b);
-        if (a !== max) { memo.set(p.id, max); changed = true; }
-        if (b !== max) { memo.set(s.id, max); changed = true; }
+        const sp = byId.get(s.id);
+        const max = Math.max(memo.get(p.id), memo.get(sp.id));
+        if (memo.get(p.id) < max && !hasKnownParents(p)) { memo.set(p.id, max); changed = true; }
+        if (memo.get(sp.id) < max && !hasKnownParents(sp)) { memo.set(sp.id, max); changed = true; }
       }
     }
   }
@@ -106,23 +115,62 @@ function orderRows(people, levels) {
   return rows;
 }
 
-function computePositions(rows) {
+// Renders every card off-screen (same markup as the real ones) purely to
+// read back its natural height. Layout then uses these real heights instead
+// of a guessed constant, so connector lines always land on an actual card
+// edge instead of floating wherever a fixed CARD_H assumed the edge to be.
+function measureCardHeights(people) {
+  const heights = new Map();
+  if (typeof document === 'undefined') {
+    for (const p of people) heights.set(p.id, CARD_H);
+    return heights;
+  }
+
+  const probe = document.createElement('div');
+  probe.style.position = 'fixed';
+  probe.style.visibility = 'hidden';
+  probe.style.pointerEvents = 'none';
+  probe.style.top = '-9999px';
+  probe.style.left = '-9999px';
+  document.body.appendChild(probe);
+
+  for (const p of people) {
+    const card = document.createElement('div');
+    card.className = 'person-card' + (p.founder ? ' founder' : '');
+    card.style.position = 'static';
+    card.style.width = CARD_W + 'px';
+    card.innerHTML = personCardInnerHtml(p);
+    probe.appendChild(card);
+    heights.set(p.id, Math.max(CARD_H, card.offsetHeight));
+    probe.removeChild(card);
+  }
+
+  document.body.removeChild(probe);
+  return heights;
+}
+
+function computePositions(rows, heights) {
   const rowWidths = rows.map((row) => row.length * CARD_W + (row.length - 1) * H_GAP);
   const canvasWidth = Math.max(...rowWidths, CARD_W) + MARGIN * 2;
-  const canvasHeight = rows.length * (CARD_H + V_GAP) + MARGIN;
+
+  const rowHeights = rows.map((row) => Math.max(CARD_H, ...row.map((id) => heights.get(id) ?? CARD_H)));
 
   const pos = new Map();
+  const rowY = [];
+  let y = MARGIN;
   rows.forEach((row, level) => {
+    rowY[level] = y;
     const rowWidth = rowWidths[level];
     const startX = MARGIN + (canvasWidth - MARGIN * 2 - rowWidth) / 2;
-    const y = MARGIN + level * (CARD_H + V_GAP);
     row.forEach((id, i) => {
       const x = startX + i * (CARD_W + H_GAP);
       pos.set(id, { x, y });
     });
+    y += rowHeights[level] + V_GAP;
   });
+  const canvasHeight = y - V_GAP + MARGIN;
 
-  return { pos, canvasWidth, canvasHeight };
+  return { pos, canvasWidth, canvasHeight, rowHeights };
 }
 
 function fmtYears(p) {
@@ -146,8 +194,26 @@ function svgEl(tag, attrs) {
 export function computeLayout(people) {
   const levels = computeLevels(people);
   const rows = orderRows(people, levels);
-  const { pos, canvasWidth, canvasHeight } = computePositions(rows);
-  return { rows, pos, canvasWidth, canvasHeight };
+  const heights = measureCardHeights(people);
+  const { pos, canvasWidth, canvasHeight, rowHeights } = computePositions(rows, heights);
+  return { rows, pos, canvasWidth, canvasHeight, rowHeights, heights };
+}
+
+function personCardInnerHtml(p) {
+  const years = fmtYears(p);
+  return `
+    ${p.founder ? '<div class="founder-badge">⭐ Fundador del árbol</div>' : ''}
+    <div class="person-card-body">
+      ${p.photoUrl ? `<img class="person-photo" src="${p.photoUrl}" alt="">` : ''}
+      <div class="person-info">
+        <div class="person-name">${escapeHtml(p.name)}</div>
+        ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
+        ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
+        ${p.deathPlace ? `<div class="person-death-place">📍 ${escapeHtml(p.deathPlace)}</div>` : ''}
+        ${p.occupation ? `<div class="person-occupation">💼 ${escapeHtml(p.occupation)}</div>` : ''}
+      </div>
+    </div>
+  `;
 }
 
 export function renderTree(container, people, { selectedId, onSelectPerson } = {}) {
@@ -162,7 +228,9 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
   }
 
   const byId = new Map(people.map((p) => [p.id, p]));
-  const { pos, canvasWidth, canvasHeight } = computeLayout(people);
+  const { pos, canvasWidth, canvasHeight, heights } = computeLayout(people);
+  const cardBottom = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H);
+  const cardCenterY = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H) / 2;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'tree-canvas';
@@ -190,7 +258,7 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     const parentPts = parentIds.map((id) => pos.get(id)).filter(Boolean);
     if (!parentPts.length) continue;
     const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
-    const anchorY = Math.max(...parentPts.map((pt) => pt.y)) + CARD_H;
+    const anchorY = Math.max(...parentIds.map((id) => cardBottom(id)));
 
     const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
     const barY = anchorY + V_GAP / 2;
@@ -218,11 +286,14 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
       const a = pos.get(p.id);
       const b = pos.get(s.id);
       if (!a || !b) continue;
-      const left = a.x < b.x ? a : b;
-      const right = a.x < b.x ? b : a;
-      const y = left.y + CARD_H / 2;
+      const leftId = a.x < b.x ? p.id : s.id;
+      const rightId = a.x < b.x ? s.id : p.id;
+      const left = pos.get(leftId);
+      const right = pos.get(rightId);
+      const y1 = cardCenterY(leftId);
+      const y2 = cardCenterY(rightId);
       const cls = s.status === 'former' ? 'link link-spouse link-former' : 'link link-spouse';
-      svg.appendChild(svgEl('line', { x1: left.x + CARD_W, y1: y, x2: right.x, y2: y, class: cls }));
+      svg.appendChild(svgEl('line', { x1: left.x + CARD_W, y1, x2: right.x, y2, class: cls }));
     }
   }
 
@@ -238,11 +309,14 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
       const a = pos.get(p.id);
       const b = pos.get(sibId);
       if (!a || !b) continue;
-      const left = a.x < b.x ? a : b;
-      const right = a.x < b.x ? b : a;
-      const y = left.y + CARD_H / 2;
+      const leftId = a.x < b.x ? p.id : sibId;
+      const rightId = a.x < b.x ? sibId : p.id;
+      const left = pos.get(leftId);
+      const right = pos.get(rightId);
+      const y1 = cardCenterY(leftId);
+      const y2 = cardCenterY(rightId);
       svg.appendChild(svgEl('line', {
-        x1: left.x + CARD_W, y1: y, x2: right.x, y2: y, class: 'link link-sibling',
+        x1: left.x + CARD_W, y1, x2: right.x, y2, class: 'link link-sibling',
       }));
     }
   }
@@ -259,21 +333,7 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     card.style.width = CARD_W + 'px';
     card.style.minHeight = CARD_H + 'px';
     card.setAttribute('aria-label', p.name);
-
-    const years = fmtYears(p);
-    card.innerHTML = `
-      ${p.founder ? '<div class="founder-badge">⭐ Fundador del árbol</div>' : ''}
-      <div class="person-card-body">
-        ${p.photoUrl ? `<img class="person-photo" src="${p.photoUrl}" alt="">` : ''}
-        <div class="person-info">
-          <div class="person-name">${escapeHtml(p.name)}</div>
-          ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
-          ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
-          ${p.deathPlace ? `<div class="person-death-place">📍 ${escapeHtml(p.deathPlace)}</div>` : ''}
-          ${p.occupation ? `<div class="person-occupation">💼 ${escapeHtml(p.occupation)}</div>` : ''}
-        </div>
-      </div>
-    `;
+    card.innerHTML = personCardInnerHtml(p);
     card.addEventListener('click', () => onSelectPerson && onSelectPerson(p.id));
     wrapper.appendChild(card);
   }

@@ -190,18 +190,21 @@ function openPersonModal({ mode, personId }) {
   _currentEditPersonId = editing ? personId : null;
   const p = editing ? people.find((pp) => pp.id === personId) : null;
   const isFirstPerson = !editing && people.length === 0;
+  if (!editing) _pendingNewRelations = [];
 
   personModalTitle.textContent = editing ? 'Editar persona' : 'Agregar persona';
 
   const relationshipSection = (!editing && isFirstPerson) ? '' : `
     <fieldset id="relFieldset">
       <legend>${editing ? 'Agregar una relación' : '¿Cómo se relaciona con la familia? (opcional)'}</legend>
+      ${editing ? '' : `<div id="pendingRelWrap">${pendingRelationsListHtml()}</div>`}
       <div class="field">
         <label for="relType">Relación</label>
         <select id="relType">${relTypeOptionsHtml()}</select>
       </div>
       <div id="relSub"></div>
-      ${editing ? '<button type="button" id="addRelBtn" class="btn btn-secondary">+ Agregar esta relación</button>' : ''}
+      <button type="button" id="addRelBtn" class="btn btn-secondary">+ Agregar esta relación</button>
+      ${editing ? '' : '<p class="field-hint">Puedes agregar varias relaciones antes de guardar.</p>'}
     </fieldset>
   `;
 
@@ -278,8 +281,18 @@ function openPersonModal({ mode, personId }) {
   const addRelBtn = document.getElementById('addRelBtn');
   if (addRelBtn) {
     addRelBtn.addEventListener('click', async () => {
-      await applyRelationshipFromForm(personId);
-      openPersonModal({ mode: 'edit', personId }); // refresh with updated relationship list
+      if (editing) {
+        await applyRelationshipFromForm(personId);
+        openPersonModal({ mode: 'edit', personId }); // refresh with updated relationship list
+      } else {
+        const drafts = relationDraftsFromForm();
+        if (!drafts.length) return;
+        _pendingNewRelations.push(...drafts);
+        document.getElementById('pendingRelWrap').innerHTML = pendingRelationsListHtml();
+        wirePendingRelRemoveButtons();
+        relType.value = '';
+        relSub.innerHTML = '';
+      }
     });
   }
 
@@ -364,27 +377,67 @@ async function loadImageBitmap(file) {
 function closePersonModal() {
   personModal.hidden = true;
   personModalBody.innerHTML = '';
+  _pendingNewRelations = [];
 }
 
-async function applyRelationshipFromForm(personId) {
+// Relationships queued while creating a brand-new person, applied once the
+// person is actually saved (there's no id to attach them to before that).
+let _pendingNewRelations = [];
+
+function pendingRelationsListHtml() {
+  if (!_pendingNewRelations.length) return '<p class="field-hint">Todavía no agregaste ninguna relación.</p>';
+  return `<ul class="relationship-list">${_pendingNewRelations.map((r, i) => `
+    <li><span>${escapeHtml(r.label)}</span><button type="button" class="btn-link" data-pending-idx="${i}">Quitar</button></li>
+  `).join('')}</ul>`;
+}
+
+function wirePendingRelRemoveButtons() {
+  document.querySelectorAll('[data-pending-idx]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      _pendingNewRelations.splice(Number(btn.dataset.pendingIdx), 1);
+      document.getElementById('pendingRelWrap').innerHTML = pendingRelationsListHtml();
+      wirePendingRelRemoveButtons();
+    });
+  });
+}
+
+// Reads the relation currently selected in the form (used both to queue a
+// relation via "+ Agregar esta relación" and to pick up whatever's left
+// selected when a new person is saved without clicking that button first).
+function relationDraftsFromForm() {
   const relType = document.getElementById('relType')?.value;
-  if (!relType) return;
+  if (!relType) return [];
 
   if (relType === 'child') {
     const father = document.getElementById('relFather').value;
     const mother = document.getElementById('relMother').value;
-    if (father) await addRelationship('parent', personId, father);
-    if (mother) await addRelationship('parent', personId, mother);
-  } else if (relType === 'parent') {
+    const drafts = [];
+    if (father) drafts.push({ type: 'parent', relatedId: father, label: `Hijo/a de ${escapeHtml(personName(father))}` });
+    if (mother) drafts.push({ type: 'parent', relatedId: mother, label: `Hijo/a de ${escapeHtml(personName(mother))}` });
+    return drafts;
+  }
+  if (relType === 'parent') {
     const child = document.getElementById('relChild').value;
-    if (child) await addRelationship('child', personId, child);
-  } else if (relType === 'spouse') {
+    return child ? [{ type: 'child', relatedId: child, label: `Padre/madre de ${escapeHtml(personName(child))}` }] : [];
+  }
+  if (relType === 'spouse') {
     const spouse = document.getElementById('relSpouse').value;
     const status = document.querySelector('input[name="spouseStatus"]:checked')?.value || 'current';
-    if (spouse) await addRelationship('spouse', personId, spouse, status);
-  } else if (relType === 'sibling') {
+    if (!spouse) return [];
+    const statusLabel = status === 'former' ? 'matrimonio anterior' : 'actual';
+    return [{ type: 'spouse', relatedId: spouse, status, label: `Esposo/a (${statusLabel}) de ${escapeHtml(personName(spouse))}` }];
+  }
+  if (relType === 'sibling') {
     const sibling = document.getElementById('relSibling').value;
-    if (sibling) await addRelationship('sibling', personId, sibling);
+    return sibling ? [{ type: 'sibling', relatedId: sibling, label: `Hermano/a de ${escapeHtml(personName(sibling))}` }] : [];
+  }
+  return [];
+}
+
+async function applyRelationshipFromForm(personId) {
+  const drafts = relationDraftsFromForm();
+  for (const r of drafts) {
+    await addRelationship(r.type, personId, r.relatedId, r.status);
   }
   flashSaved();
 }
@@ -410,7 +463,10 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
     await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl });
   } else {
     const newId = await addPerson({ name, ...dateFields, location, occupation, founder: isFirstPerson, photoUrl });
-    await applyRelationshipFromForm(newId);
+    for (const r of _pendingNewRelations) {
+      await addRelationship(r.type, newId, r.relatedId, r.status);
+    }
+    await applyRelationshipFromForm(newId); // whatever's still selected but not queued
   }
   flashSaved();
   closePersonModal();

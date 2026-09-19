@@ -4,7 +4,7 @@
 // for one page on its own gets split into left-to-right column tiles, each
 // cut only in the gap between two cards.
 
-import { computeLayout, CARD_W, CARD_H } from './tree.js';
+import { computeLayout, CARD_W } from './tree.js';
 
 const PAGE_W_MM = 297; // A4 landscape
 const PAGE_H_MM = 210;
@@ -25,7 +25,7 @@ export function computePrintPages(people, headerHeightPx = 0, options = {}) {
     forceSinglePage = false, // for A3 print-shop export: always one sheet, no min-scale cutoff
   } = options;
 
-  const { rows, pos, canvasWidth, canvasHeight } = computeLayout(people);
+  const { rows, pos, canvasWidth, canvasHeight, rowHeights } = computeLayout(people);
 
   const availW = mmToPx(pageWidthMm - PAGE_MARGIN_MM * 2);
   const availH = mmToPx(pageHeightMm - PAGE_MARGIN_MM * 2) - headerHeightPx;
@@ -48,13 +48,13 @@ export function computePrintPages(people, headerHeightPx = 0, options = {}) {
   const pageContentW = availW / scale;
   const pageContentH = availH / scale;
 
-  const rowInfo = rows.map((ids) => {
+  const rowInfo = rows.map((ids, level) => {
     const xs = ids.map((id) => pos.get(id).x);
     const y = pos.get(ids[0]).y;
     return {
       ids,
       y,
-      yEnd: y + CARD_H,
+      yEnd: y + rowHeights[level],
       xMin: Math.min(...xs),
       xMax: Math.max(...xs) + CARD_W,
     };
