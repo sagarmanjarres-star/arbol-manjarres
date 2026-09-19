@@ -229,9 +229,21 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
   }
 
   const byId = new Map(people.map((p) => [p.id, p]));
-  const { pos, canvasWidth, canvasHeight, heights } = computeLayout(people);
+  const { pos, canvasWidth, canvasHeight, heights, rows, rowHeights } = computeLayout(people);
   const cardBottom = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H);
   const cardCenterY = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H) / 2;
+
+  const idToRow = new Map();
+  rows.forEach((row, level) => { for (const id of row) idToRow.set(id, level); });
+  // A married-in spouse can get pulled several rows down from their own
+  // parents (see computeLevels). A straight vertical line from those
+  // parents down to that row would cut right through whoever else happens
+  // to occupy the intervening row(s) — this rail is a permanently empty
+  // strip along the canvas edge (every row is centered inside canvasWidth,
+  // so nothing is ever placed out here) that those connectors detour
+  // through instead, so they never look like they touch an unrelated card.
+  const railX = canvasWidth - MARGIN / 2;
+  const rowBottom = (level) => pos.get(rows[level][0]).y + rowHeights[level];
 
   const wrapper = document.createElement('div');
   wrapper.className = 'tree-canvas';
@@ -260,7 +272,14 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     if (!parentPts.length) continue;
     const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
     const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
-    const barY = bottomY + V_GAP / 2;
+
+    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
+    if (!childPts.length) continue;
+    // Anchored off the child row itself (not the parents' row) so this
+    // still lands right above the children even when they ended up two or
+    // more rows down from their parents (a spouse pulled onto a much later
+    // row — see computeLevels).
+    const barY = Math.min(...childPts.map((pt) => pt.y)) - V_GAP / 2;
 
     // When the two co-parents are each other's spouse, start the drop line
     // at their marriage line instead of below their cards — anchorX already
@@ -274,9 +293,21 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
       ? (cardCenterY(parentA) + cardCenterY(parentB)) / 2
       : bottomY;
 
-    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
+    const parentLevel = Math.max(...parentIds.map((id) => idToRow.get(id)));
+    const childLevel = Math.min(...children.map((c) => idToRow.get(c.id)));
 
-    svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: barY, class: 'link link-descent' }));
+    if (childLevel > parentLevel + 1) {
+      // The children's row isn't right below the parents' — route around
+      // whoever sits in the row(s) between them via the side rail instead
+      // of drawing straight through their cards.
+      const clearY = rowBottom(parentLevel);
+      svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: clearY, class: 'link link-descent' }));
+      svg.appendChild(svgEl('line', { x1: anchorX, y1: clearY, x2: railX, y2: clearY, class: 'link link-descent' }));
+      svg.appendChild(svgEl('line', { x1: railX, y1: clearY, x2: railX, y2: barY, class: 'link link-descent' }));
+      svg.appendChild(svgEl('line', { x1: railX, y1: barY, x2: anchorX, y2: barY, class: 'link link-descent' }));
+    } else {
+      svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: barY, class: 'link link-descent' }));
+    }
 
     const xs = childPts.map((pt) => pt.x + CARD_W / 2);
     const barLeft = Math.min(anchorX, ...xs);
