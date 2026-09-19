@@ -193,9 +193,16 @@ function svgEl(tag, attrs) {
 // renderTree (the interactive view) and the print paginator, so both agree
 // on exactly where every card sits.
 export function computeLayout(people) {
+  // Levels are computed over EVERYONE, including hidden generation
+  // placeholders (see personCardInnerHtml / renderTree below) — a
+  // placeholder with no other details still anchors its children's blood
+  // generation correctly. Rows/positions are then built from only the
+  // visible people, so a placeholder never reserves a card-sized slot or
+  // shows up as a blank box in the diagram.
   const levels = computeLevels(people);
-  const rows = orderRows(people, levels);
-  const heights = measureCardHeights(people);
+  const visible = people.filter((p) => !p.hidden);
+  const rows = orderRows(visible, levels);
+  const heights = measureCardHeights(visible);
   const { pos, canvasWidth, canvasHeight, rowHeights } = computePositions(rows, heights);
   return { rows, pos, canvasWidth, canvasHeight, rowHeights, heights };
 }
@@ -264,12 +271,16 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     if (!key || seenGroups.has(key)) continue;
     seenGroups.add(key);
 
-    const parentIds = key.split(',').filter((id) => byId.has(id));
     const children = people.filter((c) => parentKey(c) === key);
-    if (!parentIds.length || !children.length) continue;
+    if (!children.length) continue;
+    // A hidden generation placeholder (see personCardInnerHtml/renderTree)
+    // has no card and no `pos` entry, so it's excluded here — a child whose
+    // only recorded parent is one of these gets no connector line at all
+    // above them, which is correct: there's nothing visible to anchor to.
+    const parentIds = key.split(',').filter((id) => byId.has(id) && pos.has(id));
+    if (!parentIds.length) continue;
 
-    const parentPts = parentIds.map((id) => pos.get(id)).filter(Boolean);
-    if (!parentPts.length) continue;
+    const parentPts = parentIds.map((id) => pos.get(id));
     const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
     const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
 
@@ -294,7 +305,7 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
       : bottomY;
 
     const parentLevel = Math.max(...parentIds.map((id) => idToRow.get(id)));
-    const childLevel = Math.min(...children.map((c) => idToRow.get(c.id)));
+    const childLevel = Math.min(...children.filter((c) => idToRow.has(c.id)).map((c) => idToRow.get(c.id)));
 
     if (childLevel > parentLevel + 1) {
       // The children's row isn't right below the parents' — route around

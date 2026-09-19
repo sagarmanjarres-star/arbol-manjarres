@@ -48,7 +48,7 @@ export function subscribePeople(onChange) {
   return () => unsub();
 }
 
-export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, founder, photoUrl }) {
+export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, founder, photoUrl, hidden }) {
   await authReady;
   const ref = await addDoc(peopleCol, {
     name: name.trim(),
@@ -62,6 +62,7 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
     deathPlace: (deathPlace || '').trim(),
     occupation: (occupation || '').trim(),
     founder: !!founder,
+    hidden: !!hidden,
     photoUrl: photoUrl ?? null,
     parentIds: [],
     spouses: [],
@@ -72,7 +73,7 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
   return ref.id;
 }
 
-export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, photoUrl }) {
+export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, photoUrl, hidden }) {
   await authReady;
   await updateDoc(doc(peopleCol, id), {
     name: name.trim(),
@@ -86,6 +87,7 @@ export async function updatePersonDetails(id, { name, birthDay, birthMonth, birt
     deathPlace: (deathPlace || '').trim(),
     occupation: (occupation || '').trim(),
     photoUrl: photoUrl ?? null,
+    hidden: !!hidden,
     updatedAt: serverTimestamp(),
   });
 }

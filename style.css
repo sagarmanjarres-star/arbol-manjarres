@@ -328,6 +328,26 @@ button {
   font-size: 18px;
 }
 
+.field-checkbox {
+  background: var(--cream);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+.field-checkbox label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  margin-bottom: 0;
+}
+.field-checkbox input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.field-checkbox .field-hint { margin-top: 8px; }
+
 .field input[type="text"],
 .field input[type="number"],
 .field select {

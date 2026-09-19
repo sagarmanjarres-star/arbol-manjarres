@@ -89,7 +89,7 @@ function optionsHtml(excludeIds = []) {
     .filter((p) => !excl.has(p.id))
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
-    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`)
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}${p.hidden ? ' (marcador oculto)' : ''}</option>`)
     .join('');
 }
 
@@ -213,6 +213,10 @@ function openPersonModal({ mode, personId }) {
       <div class="field">
         <label for="fName">Nombre</label>
         <input type="text" id="fName" required value="${p ? escapeAttr(p.name) : ''}">
+      </div>
+      <div class="field field-checkbox">
+        <label><input type="checkbox" id="fHidden" ${p?.hidden ? 'checked' : ''}> Marcador de generación (no se muestra en el árbol)</label>
+        <p class="field-hint">Úsalo cuando no conoces el nombre de un antepasado pero sabes que existió — por ejemplo, para marcar que alguien tiene un padre o madre desconocido y así ubicar correctamente su generación. No aparece como tarjeta en el árbol.</p>
       </div>
       <div class="field">
         <label>Fecha de nacimiento</label>
@@ -454,15 +458,16 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const deathPlace = document.getElementById('fDeathPlace').value.trim();
   const location = document.getElementById('fLocation').value.trim();
   const occupation = document.getElementById('fOccupation').value.trim();
+  const hidden = document.getElementById('fHidden').checked;
 
   const photoUrl = _pendingPhotoDataUrl;
 
   const dateFields = { birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, deathPlace };
 
   if (editing) {
-    await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl });
+    await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl, hidden });
   } else {
-    const newId = await addPerson({ name, ...dateFields, location, occupation, founder: isFirstPerson, photoUrl });
+    const newId = await addPerson({ name, ...dateFields, location, occupation, founder: isFirstPerson, photoUrl, hidden });
     for (const r of _pendingNewRelations) {
       await addRelationship(r.type, newId, r.relatedId, r.status);
     }
