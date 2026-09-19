@@ -135,7 +135,12 @@ function measureCardHeights(people) {
   document.body.appendChild(probe);
 
   for (const p of people) {
-    const card = document.createElement('div');
+    // Must be a <button>, same as the real card (renderTree below) — a
+    // <div> with identical content renders a few pixels taller here, which
+    // used to throw anchorY off just enough that connector lines landed
+    // past the real card edge instead of touching it.
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'person-card' + (p.founder ? ' founder' : '');
     card.style.position = 'static';
     card.style.width = CARD_W + 'px';
