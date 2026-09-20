@@ -162,73 +162,156 @@ function measureCardHeights(people) {
   return heights;
 }
 
-// Splits a row into left-to-right runs that should move as one block: a
-// blood-sibling group plus any spouse nudged in next to them share one
-// "anchor key" (their common parentKey, or a synthetic key for a couple/
-// person with no recorded parents) so the whole run can be centered under
-// its own parents as a unit, rather than each card independently.
-function computeRowRuns(row, byId) {
-  const runs = [];
+// Splits a row into "sibling blocks": everyone who shares the exact same
+// parentKey (full siblings), plus each of their spouses nudged in next to
+// them. A block is the thing that gets ONE shared anchor and is centered
+// on it as a whole — full siblings have to move together as one group, or
+// each one individually cascading off the same shared anchor point drifts
+// the group asymmetrically off-center instead of straddling it.
+//
+// A spouse joins the current block whenever they're the recorded spouse
+// of someone already in it — even when that spouse has real blood parents
+// of their own (a couple who are each other's blood-distant relatives:
+// computeLevels always keeps married couples on one row). Checking that
+// FIRST, before falling back to "shares the same parentKey", is what
+// keeps a couple like Faustino+Basilisa together as one block instead of
+// Basilisa splitting off into her own block anchored on her own distant
+// parents. That distant ancestry is still handled correctly — separately,
+// by the parent-child connector, which routes around the row via the
+// side rail when needed.
+function computeSiblingBlocks(row, byId) {
+  const blocks = [];
   for (const id of row) {
     const p = byId.get(id);
-    let key = parentKey(p);
-    if (!key) {
-      const spouse = (p.spouses || []).find((s) => row.includes(s.id));
-      if (spouse) {
-        key = parentKey(byId.get(spouse.id)) || ('pair:' + [id, spouse.id].sort().join(','));
-      } else {
-        key = 'solo:' + id;
-      }
+    const ownKey = parentKey(p);
+    const last = blocks[blocks.length - 1];
+    const joinsLastAsSpouse = last && last.ids.some((mid) => (p.spouses || []).some((s) => s.id === mid));
+    const sharesLastBloodKey = last && ownKey && ownKey === last.key;
+
+    if (joinsLastAsSpouse || sharesLastBloodKey) {
+      last.ids.push(id);
+      if (!last.key && ownKey) last.key = ownKey;
+    } else {
+      blocks.push({ key: ownKey || null, ids: [id] });
     }
-    const last = runs[runs.length - 1];
-    if (last && last.key === key) last.ids.push(id);
-    else runs.push({ key, ids: [id] });
   }
-  return runs;
+  for (const block of blocks) {
+    if (!block.key) block.key = 'synth:' + block.ids.slice().sort().join(',');
+  }
+  return blocks;
+}
+
+// Within one sibling block, splits into "person units": one blood sibling
+// plus their own spouse riding along right after them. This is the unit
+// that reserves its OWN width based on ITS OWN children/grandchildren —
+// a sibling with a big family of their own needs more room than one
+// without, even though both sit in the same block.
+function computePersonUnits(ids, byId) {
+  const units = [];
+  for (const id of ids) {
+    const p = byId.get(id);
+    const prev = units[units.length - 1];
+    const isSpouseOfPrev = prev && (p.spouses || []).some((s) => s.id === prev.bloodId);
+    if (isSpouseOfPrev) prev.ids.push(id);
+    else units.push({ bloodId: id, ids: [id] });
+  }
+  return units;
+}
+
+// Every person-unit needs at least its own card width, but if its blood
+// member's own children (one level down) collectively need more room
+// than that, this unit has to reserve that much space instead —
+// otherwise the row below gets squeezed into a gap narrower than it
+// needs and spills into a neighboring family's column. A block's total
+// width is just the sum of its person-units' widths. Computed bottom-up
+// (deepest level first) so each level's reservations already account for
+// everything beneath it.
+function computeReservedWidths(rows, byId) {
+  const blocksByLevel = rows.map((row) => computeSiblingBlocks(row, byId));
+  const unitsByLevel = blocksByLevel.map((blocks) => blocks.map((b) => computePersonUnits(b.ids, byId)));
+  const unitWidth = new Map(); // `${level}:${bloodId}` -> width
+  const blockWidth = new Map(); // `${level}:${blockIndex}` -> width
+
+  for (let level = rows.length - 1; level >= 0; level--) {
+    const childBlocks = level + 1 < rows.length ? blocksByLevel[level + 1] : [];
+    blocksByLevel[level].forEach((block, bi) => {
+      let total = 0;
+      const units = unitsByLevel[level][bi];
+      units.forEach((unit) => {
+        const naturalWidth = unit.ids.length * CARD_W + (unit.ids.length - 1) * H_GAP;
+        const childWidths = childBlocks
+          .map((cb, cbi) => ({ cb, cbi }))
+          .filter(({ cb }) => !cb.key.startsWith('synth:') && cb.key.split(',').includes(unit.bloodId))
+          .map(({ cbi }) => blockWidth.get((level + 1) + ':' + cbi));
+        const childrenTotal = childWidths.length
+          ? childWidths.reduce((a, b) => a + b, 0) + H_GAP * (childWidths.length - 1)
+          : 0;
+        const width = Math.max(naturalWidth, childrenTotal);
+        unitWidth.set(level + ':' + unit.bloodId, width);
+        total += width;
+      });
+      total += H_GAP * Math.max(0, units.length - 1);
+      blockWidth.set(level + ':' + bi, total);
+    });
+  }
+
+  return { blocksByLevel, unitsByLevel, unitWidth, blockWidth };
 }
 
 // A real parentKey ("id1,id2") anchors to those parents' actual pixel
-// center in the row already laid out above. A synthetic "pair:"/"solo:"
-// key (root ancestors, or anyone whose own parents aren't recorded) has
-// nothing to anchor to, so the run just continues the row's left-to-right
-// flow instead.
+// center in the row already laid out above. A synthetic "synth:" key
+// (root ancestors, or anyone whose own parents aren't recorded) has
+// nothing to anchor to, so the block just continues the row's
+// left-to-right flow instead.
 function anchorXForKey(key, pos) {
-  if (key.startsWith('pair:') || key.startsWith('solo:')) return null;
+  if (key.startsWith('synth:')) return null;
   const ids = key.split(',').filter((id) => pos.has(id));
   if (!ids.length) return null;
   const sum = ids.reduce((acc, id) => acc + pos.get(id).x + CARD_W / 2, 0);
   return sum / ids.length;
 }
 
-// Lays out one row by walking its runs left to right: each run is pulled
-// toward the horizontal center of its own parents (from the row above,
-// already placed in real pixels) and only pushed further right if that
-// would overlap the previous run. This is what keeps a row of children
-// visually under their actual parents regardless of how wide or narrow
-// neighboring sibling families are — independently centering each row
-// within a shared canvas width (the old approach) broke that alignment
-// whenever sibling generations had very different sizes.
-function layoutRowX(row, y, byId, pos) {
-  const runs = computeRowRuns(row, byId);
+// Lays out one row by walking its sibling blocks left to right: each
+// block is pulled toward the horizontal center of its own parents, given
+// its full pre-reserved width, and only pushed further right if that
+// would overlap the previous block. Within a block, each person-unit
+// gets its own reserved chunk of that width (its cards centered within
+// it), laid out left to right in turn. Because widths already account
+// for descendants (see computeReservedWidths), a family that needs more
+// room pushes its own neighbors apart at THIS level instead of
+// overflowing into them further down the tree — which is what let one
+// family's grandchildren visually spill into and merge with an unrelated
+// neighboring family's line.
+function layoutRowX(blocks, units, level, widths, y, pos) {
   let cursor = null;
-  for (const run of runs) {
-    const width = run.ids.length * CARD_W + (run.ids.length - 1) * H_GAP;
-    const anchorX = anchorXForKey(run.key, pos);
-    const idealStart = anchorX != null ? anchorX - width / 2 : (cursor ?? 0) + (cursor == null ? 0 : H_GAP);
-    const startX = cursor == null ? idealStart : Math.max(idealStart, cursor + H_GAP);
-    run.ids.forEach((id, i) => pos.set(id, { x: startX + i * (CARD_W + H_GAP), y }));
-    cursor = startX + width;
-  }
+  blocks.forEach((block, bi) => {
+    const slotWidth = widths.blockWidth.get(level + ':' + bi);
+    const anchorX = anchorXForKey(block.key, pos);
+    const idealStart = anchorX != null ? anchorX - slotWidth / 2 : (cursor == null ? 0 : cursor + H_GAP);
+    const slotStart = cursor == null ? idealStart : Math.max(idealStart, cursor + H_GAP);
+
+    let unitCursor = slotStart;
+    for (const unit of units[bi]) {
+      const unitWidth = widths.unitWidth.get(level + ':' + unit.bloodId);
+      const naturalWidth = unit.ids.length * CARD_W + (unit.ids.length - 1) * H_GAP;
+      const cardsStart = unitCursor + (unitWidth - naturalWidth) / 2;
+      unit.ids.forEach((id, j) => pos.set(id, { x: cardsStart + j * (CARD_W + H_GAP), y }));
+      unitCursor += unitWidth + H_GAP;
+    }
+
+    cursor = slotStart + slotWidth;
+  });
 }
 
 function computePositions(rows, heights, people) {
   const byId = new Map(people.map((p) => [p.id, p]));
   const rowHeights = rows.map((row) => Math.max(CARD_H, ...row.map((id) => heights.get(id) ?? CARD_H)));
+  const widths = computeReservedWidths(rows, byId);
 
   const pos = new Map();
   let y = MARGIN;
   rows.forEach((row, level) => {
-    layoutRowX(row, y, byId, pos);
+    layoutRowX(widths.blocksByLevel[level], widths.unitsByLevel[level], level, widths, y, pos);
     y += rowHeights[level] + V_GAP;
   });
 
