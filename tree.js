@@ -62,13 +62,26 @@ function parentKey(p) {
   return (p.parentIds || []).slice().sort().join(',');
 }
 
+// Sorts a sibling group chronologically (as before), then — if the tree's
+// founder is among them — moves them to the middle of the group instead of
+// wherever their entry order landed them. The founder made this tree for
+// the whole family and is meant to read as its center, not drift to one
+// side as more siblings get added around them later.
+function sortSiblingsCentered(members) {
+  const sorted = members.slice().sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+  const founderIdx = sorted.findIndex((m) => m.founder);
+  if (founderIdx === -1) return sorted;
+  const [founder] = sorted.splice(founderIdx, 1);
+  sorted.splice(Math.floor(sorted.length / 2), 0, founder);
+  return sorted;
+}
+
 function orderRows(people, levels) {
   const byId = new Map(people.map((p) => [p.id, p]));
   const maxLevel = Math.max(0, ...people.map((p) => levels.get(p.id)));
   const rows = [];
 
-  const level0 = people.filter((p) => levels.get(p.id) === 0);
-  level0.sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
+  const level0 = sortSiblingsCentered(people.filter((p) => levels.get(p.id) === 0));
   rows[0] = level0.map((p) => p.id);
 
   for (let L = 1; L <= maxLevel; L++) {
@@ -86,8 +99,7 @@ function orderRows(people, levels) {
       const parentIds = key ? key.split(',') : [];
       const positions = parentIds.map((id) => prevIndex.get(id)).filter((v) => v !== undefined);
       const avgPos = positions.length ? positions.reduce((a, b) => a + b, 0) / positions.length : Infinity;
-      members.sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
-      return { avgPos, members };
+      return { avgPos, members: sortSiblingsCentered(members) };
     });
     groupList.sort((a, b) => a.avgPos - b.avgPos);
 
@@ -150,25 +162,86 @@ function measureCardHeights(people) {
   return heights;
 }
 
-function computePositions(rows, heights) {
-  const rowWidths = rows.map((row) => row.length * CARD_W + (row.length - 1) * H_GAP);
-  const canvasWidth = Math.max(...rowWidths, CARD_W) + MARGIN * 2;
+// Splits a row into left-to-right runs that should move as one block: a
+// blood-sibling group plus any spouse nudged in next to them share one
+// "anchor key" (their common parentKey, or a synthetic key for a couple/
+// person with no recorded parents) so the whole run can be centered under
+// its own parents as a unit, rather than each card independently.
+function computeRowRuns(row, byId) {
+  const runs = [];
+  for (const id of row) {
+    const p = byId.get(id);
+    let key = parentKey(p);
+    if (!key) {
+      const spouse = (p.spouses || []).find((s) => row.includes(s.id));
+      if (spouse) {
+        key = parentKey(byId.get(spouse.id)) || ('pair:' + [id, spouse.id].sort().join(','));
+      } else {
+        key = 'solo:' + id;
+      }
+    }
+    const last = runs[runs.length - 1];
+    if (last && last.key === key) last.ids.push(id);
+    else runs.push({ key, ids: [id] });
+  }
+  return runs;
+}
 
+// A real parentKey ("id1,id2") anchors to those parents' actual pixel
+// center in the row already laid out above. A synthetic "pair:"/"solo:"
+// key (root ancestors, or anyone whose own parents aren't recorded) has
+// nothing to anchor to, so the run just continues the row's left-to-right
+// flow instead.
+function anchorXForKey(key, pos) {
+  if (key.startsWith('pair:') || key.startsWith('solo:')) return null;
+  const ids = key.split(',').filter((id) => pos.has(id));
+  if (!ids.length) return null;
+  const sum = ids.reduce((acc, id) => acc + pos.get(id).x + CARD_W / 2, 0);
+  return sum / ids.length;
+}
+
+// Lays out one row by walking its runs left to right: each run is pulled
+// toward the horizontal center of its own parents (from the row above,
+// already placed in real pixels) and only pushed further right if that
+// would overlap the previous run. This is what keeps a row of children
+// visually under their actual parents regardless of how wide or narrow
+// neighboring sibling families are — independently centering each row
+// within a shared canvas width (the old approach) broke that alignment
+// whenever sibling generations had very different sizes.
+function layoutRowX(row, y, byId, pos) {
+  const runs = computeRowRuns(row, byId);
+  let cursor = null;
+  for (const run of runs) {
+    const width = run.ids.length * CARD_W + (run.ids.length - 1) * H_GAP;
+    const anchorX = anchorXForKey(run.key, pos);
+    const idealStart = anchorX != null ? anchorX - width / 2 : (cursor ?? 0) + (cursor == null ? 0 : H_GAP);
+    const startX = cursor == null ? idealStart : Math.max(idealStart, cursor + H_GAP);
+    run.ids.forEach((id, i) => pos.set(id, { x: startX + i * (CARD_W + H_GAP), y }));
+    cursor = startX + width;
+  }
+}
+
+function computePositions(rows, heights, people) {
+  const byId = new Map(people.map((p) => [p.id, p]));
   const rowHeights = rows.map((row) => Math.max(CARD_H, ...row.map((id) => heights.get(id) ?? CARD_H)));
 
   const pos = new Map();
-  const rowY = [];
   let y = MARGIN;
   rows.forEach((row, level) => {
-    rowY[level] = y;
-    const rowWidth = rowWidths[level];
-    const startX = MARGIN + (canvasWidth - MARGIN * 2 - rowWidth) / 2;
-    row.forEach((id, i) => {
-      const x = startX + i * (CARD_W + H_GAP);
-      pos.set(id, { x, y });
-    });
+    layoutRowX(row, y, byId, pos);
     y += rowHeights[level] + V_GAP;
   });
+
+  // Rows are no longer independently centered (see layoutRowX above), so
+  // the canvas has to be sized to whatever bounding box the tree actually
+  // ended up with, then shifted so nothing sits left of the margin.
+  const xs = [...pos.values()].map((pt) => pt.x);
+  const minX = xs.length ? Math.min(...xs) : 0;
+  const maxX = xs.length ? Math.max(...xs) + CARD_W : CARD_W;
+  const shift = MARGIN - minX;
+  for (const pt of pos.values()) pt.x += shift;
+
+  const canvasWidth = (maxX - minX) + MARGIN * 2;
   const canvasHeight = y - V_GAP + MARGIN;
 
   return { pos, canvasWidth, canvasHeight, rowHeights };
@@ -203,7 +276,7 @@ export function computeLayout(people) {
   const visible = people.filter((p) => !p.hidden);
   const rows = orderRows(visible, levels);
   const heights = measureCardHeights(visible);
-  const { pos, canvasWidth, canvasHeight, rowHeights } = computePositions(rows, heights);
+  const { pos, canvasWidth, canvasHeight, rowHeights } = computePositions(rows, heights, visible);
   return { rows, pos, canvasWidth, canvasHeight, rowHeights, heights };
 }
 
