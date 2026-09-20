@@ -348,6 +348,20 @@ button {
 }
 .field-checkbox .field-hint { margin-top: 8px; }
 
+.location-chip {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--green-dark);
+  background: var(--green-light);
+  border: 2px solid var(--green);
+  border-radius: 999px;
+}
+.location-chip:hover { filter: brightness(0.97); }
+.location-chip:active { transform: scale(0.97); }
+
 .field input[type="text"],
 .field input[type="number"],
 .field select {

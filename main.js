@@ -11,6 +11,14 @@ import { renderTree } from './tree.js';
 import { computePrintPages } from './print-layout.js';
 import { MONTHS_ES_LONG } from './dates.js';
 
+// Most people in this tree were born/died in the same village, so a
+// one-click chip beats retyping it for the 90% common case.
+const COMMON_LOCATION = 'Sieteiglesias de Trabancos (Valladolid)';
+
+function locationChipHtml(targetFieldId) {
+  return `<button type="button" class="location-chip" data-fill-target="${targetFieldId}">📍 ${COMMON_LOCATION}</button>`;
+}
+
 const treeContainer = document.getElementById('treeContainer');
 const saveStatus = document.getElementById('saveStatus');
 const addPersonBtn = document.getElementById('addPersonBtn');
@@ -230,6 +238,7 @@ function openPersonModal({ mode, personId }) {
       <div class="field">
         <label for="fLocation">Lugar de nacimiento</label>
         <input type="text" id="fLocation" placeholder="ciudad, país" value="${p ? escapeAttr(p.location || '') : ''}">
+        ${locationChipHtml('fLocation')}
       </div>
       <div class="field">
         <label>Fecha de fallecimiento</label>
@@ -243,6 +252,7 @@ function openPersonModal({ mode, personId }) {
       <div class="field">
         <label for="fDeathPlace">Lugar de fallecimiento</label>
         <input type="text" id="fDeathPlace" placeholder="ciudad, país" value="${p ? escapeAttr(p.deathPlace || '') : ''}">
+        ${locationChipHtml('fDeathPlace')}
       </div>
       <div class="field">
         <label for="fOccupation">Ocupación</label>
@@ -274,6 +284,12 @@ function openPersonModal({ mode, personId }) {
       relSub.innerHTML = relSubHtml(relType.value, editing ? personId : null);
     });
   }
+
+  document.querySelectorAll('.location-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      document.getElementById(chip.dataset.fillTarget).value = COMMON_LOCATION;
+    });
+  });
 
   document.getElementById('cancelPersonBtn').addEventListener('click', closePersonModal);
 
