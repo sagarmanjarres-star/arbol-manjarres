@@ -10,7 +10,6 @@
 //     deathDay, deathMonth, deathYear: number|null,
 //     location: string,
 //     deathPlace: string,
-//     occupation: string,
 //     parentIds: string[],
 //     spouses: { id: string, status: 'current'|'former' }[],
 //     siblingIds: string[],
@@ -33,6 +32,7 @@ import {
   onSnapshot,
   serverTimestamp,
   runTransaction,
+  deleteField,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const peopleCol = collection(db, 'people');
@@ -48,7 +48,7 @@ export function subscribePeople(onChange) {
   return () => unsub();
 }
 
-export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, founder, photoUrl, hidden }) {
+export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, founder, photoUrl, hidden }) {
   await authReady;
   const ref = await addDoc(peopleCol, {
     name: name.trim(),
@@ -60,7 +60,6 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
     deathPlace: (deathPlace || '').trim(),
-    occupation: (occupation || '').trim(),
     founder: !!founder,
     hidden: !!hidden,
     photoUrl: photoUrl ?? null,
@@ -73,7 +72,7 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
   return ref.id;
 }
 
-export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, photoUrl, hidden }) {
+export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, photoUrl, hidden }) {
   await authReady;
   await updateDoc(doc(peopleCol, id), {
     name: name.trim(),
@@ -85,7 +84,7 @@ export async function updatePersonDetails(id, { name, birthDay, birthMonth, birt
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
     deathPlace: (deathPlace || '').trim(),
-    occupation: (occupation || '').trim(),
+    occupation: deleteField(),
     photoUrl: photoUrl ?? null,
     hidden: !!hidden,
     updatedAt: serverTimestamp(),

@@ -255,10 +255,6 @@ function openPersonModal({ mode, personId }) {
         ${locationChipHtml('fDeathPlace')}
       </div>
       <div class="field">
-        <label for="fOccupation">Ocupación</label>
-        <input type="text" id="fOccupation" placeholder="ej. ingeniero, ama de casa, médico" value="${p ? escapeAttr(p.occupation || '') : ''}">
-      </div>
-      <div class="field">
         <label for="fPhotoFile">Foto (opcional)</label>
         <div id="photoPreviewWrap" class="photo-preview-wrap"></div>
         <input type="file" id="fPhotoFile" accept="image/*">
@@ -473,7 +469,6 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const deathYear = parseIntOrNull(document.getElementById('fDeathYear').value);
   const deathPlace = document.getElementById('fDeathPlace').value.trim();
   const location = document.getElementById('fLocation').value.trim();
-  const occupation = document.getElementById('fOccupation').value.trim();
   const hidden = document.getElementById('fHidden').checked;
 
   const photoUrl = _pendingPhotoDataUrl;
@@ -481,9 +476,9 @@ async function handlePersonSave({ editing, personId, isFirstPerson }) {
   const dateFields = { birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, deathPlace };
 
   if (editing) {
-    await updatePersonDetails(personId, { name, ...dateFields, location, occupation, photoUrl, hidden });
+    await updatePersonDetails(personId, { name, ...dateFields, location, photoUrl, hidden });
   } else {
-    const newId = await addPerson({ name, ...dateFields, location, occupation, founder: isFirstPerson, photoUrl, hidden });
+    const newId = await addPerson({ name, ...dateFields, location, founder: isFirstPerson, photoUrl, hidden });
     for (const r of _pendingNewRelations) {
       await addRelationship(r.type, newId, r.relatedId, r.status);
     }

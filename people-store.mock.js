@@ -29,7 +29,7 @@ export function subscribePeople(onChange) {
   };
 }
 
-export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, founder, photoUrl, hidden }) {
+export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, founder, photoUrl, hidden }) {
   const people = readAll();
   const id = uid();
   people.push({
@@ -43,7 +43,6 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
     deathPlace: (deathPlace || '').trim(),
-    occupation: (occupation || '').trim(),
     founder: !!founder,
     hidden: !!hidden,
     photoUrl: photoUrl ?? null,
@@ -56,10 +55,11 @@ export async function addPerson({ name, birthDay, birthMonth, birthYear, deathDa
   return id;
 }
 
-export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, occupation, photoUrl, hidden }) {
+export async function updatePersonDetails(id, { name, birthDay, birthMonth, birthYear, deathDay, deathMonth, deathYear, location, deathPlace, photoUrl, hidden }) {
   const people = readAll();
   const p = people.find((p) => p.id === id);
   if (!p) return;
+  delete p.occupation;
   Object.assign(p, {
     name: name.trim(),
     birthDay: birthDay ?? null,
@@ -70,7 +70,6 @@ export async function updatePersonDetails(id, { name, birthDay, birthMonth, birt
     deathYear: deathYear ?? null,
     location: (location || '').trim(),
     deathPlace: (deathPlace || '').trim(),
-    occupation: (occupation || '').trim(),
     photoUrl: photoUrl ?? null,
     hidden: !!hidden,
   });

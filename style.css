@@ -262,12 +262,6 @@ button {
   margin-top: 2px;
 }
 
-.person-occupation {
-  font-size: 15px;
-  color: var(--ink-soft);
-  margin-top: 2px;
-}
-
 .person-death-place {
   font-size: 15px;
   color: var(--ink-soft);
