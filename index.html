@@ -34,7 +34,14 @@
     <button id="printA3Btn" class="btn btn-secondary btn-big">📄 Preparar para imprimir en A3</button>
   </div>
 
-  <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
+  <div class="tree-viewport-wrap">
+    <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
+    <div class="zoom-controls">
+      <button id="zoomInBtn" class="zoom-btn" type="button" title="Acercar">+</button>
+      <button id="zoomOutBtn" class="zoom-btn" type="button" title="Alejar">−</button>
+      <button id="zoomResetBtn" class="zoom-btn zoom-btn-reset" type="button" title="Restablecer zoom">100%</button>
+    </div>
+  </div>
 
   <!-- Add / Edit person modal -->
   <div id="personModal" class="modal-overlay" hidden>

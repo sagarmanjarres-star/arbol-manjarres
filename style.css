@@ -173,10 +173,17 @@ button {
 
 /* ---------- Tree canvas ---------- */
 
+.tree-viewport-wrap {
+  position: relative;
+}
+
 .tree-container {
-  overflow: auto;
-  padding: 40px;
-  min-height: calc(100vh - 220px);
+  overflow: hidden;
+  height: calc(100vh - 220px);
+  cursor: grab;
+}
+.tree-container.grabbing {
+  cursor: grabbing;
 }
 
 .tree-empty {
@@ -191,6 +198,48 @@ button {
 
 .tree-canvas {
   position: relative;
+}
+
+/* Printing clones .tree-canvas and sets its own transform per page (see
+   main.js buildPrintPages), fully overriding whatever pan/zoom the live
+   canvas had — so this rule only ever affects the on-screen canvas. */
+.tree-canvas {
+  transform-origin: 0 0;
+}
+
+.zoom-controls {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 3px 10px var(--shadow);
+}
+.zoom-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+  border: 1.5px solid var(--border);
+  background: var(--green-light);
+  color: var(--green-dark);
+  font-size: 22px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.zoom-btn:hover {
+  border-color: var(--gold);
+}
+.zoom-btn-reset {
+  font-size: 13px;
 }
 
 .tree-lines {
@@ -231,6 +280,21 @@ button {
 }
 .person-card.deceased {
   background: #F3F0E8;
+}
+/* A small black corner, no label — quiet enough to not compete with the
+   card's own content, but unmistakable once you know what it means. */
+.person-card.deceased::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 22px solid var(--ink);
+  border-left: 22px solid transparent;
+  border-top-right-radius: 11px;
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .founder-badge {

@@ -626,11 +626,9 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
   }
 
   container.appendChild(wrapper);
-
-  if (selectedId) {
-    const card = wrapper.querySelector('.person-card.selected');
-    card?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-  }
+  // Centering the selected card in view is main.js's job now — it pans/zooms
+  // the canvas via a CSS transform (see centerViewOn), since the container
+  // clips (overflow: hidden) rather than natively scrolls.
 }
 
 function escapeHtml(str) {

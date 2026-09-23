@@ -7,7 +7,7 @@ import {
   deletePersonWithCleanup,
   undoDelete,
 } from './store.js';
-import { renderTree } from './tree.js';
+import { renderTree, computeLayout, CARD_W } from './tree.js';
 import { computePrintPages } from './print-layout.js';
 import { MONTHS_ES_LONG } from './dates.js';
 
@@ -28,6 +28,9 @@ const printA3Btn = document.getElementById('printA3Btn');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 const showBernalToggle = document.getElementById('showBernalToggle');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomResetBtn = document.getElementById('zoomResetBtn');
 
 const pdfTipModal = document.getElementById('pdfTipModal');
 const pdfTipContinueBtn = document.getElementById('pdfTipContinueBtn');
@@ -135,11 +138,126 @@ function renderTreeNow() {
     ? people
     : people.filter((p) => !inLawBranchIds.has(p.id));
   renderTree(treeContainer, visiblePeople, { selectedId, onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }) });
+  if (!hasCenteredOnce && visiblePeople.length) {
+    hasCenteredOnce = true;
+    centerViewOn(visiblePeople.find((p) => p.founder) || visiblePeople[0], visiblePeople);
+  }
+  applyZoomPan();
 }
 
 let inLawBranchIds = new Set();
 
 showBernalToggle.addEventListener('change', renderTreeNow);
+
+// ---------- Pan & zoom ----------
+// The tree canvas is rendered at full pixel size by tree.js (often 15,000px+
+// wide for this family) and .tree-container clips it (overflow: hidden) —
+// this section is what lets you actually get around inside that clipped
+// view: drag to pan, wheel or the +/− buttons to zoom, all done by
+// transforming the canvas element itself rather than relying on native
+// scrollbars, which don't shrink/grow with zoom.
+let zoomScale = 1;
+let panX = 0;
+let panY = 0;
+let hasCenteredOnce = false;
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+let panOriginX = 0;
+let panOriginY = 0;
+
+function clampScale(s) {
+  return Math.min(2.5, Math.max(0.15, s));
+}
+
+function applyZoomPan() {
+  const canvas = treeContainer.querySelector('.tree-canvas');
+  if (!canvas) return;
+  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+}
+
+// Keeps the point under (clientX, clientY) visually fixed while the scale
+// changes, so zooming with the wheel zooms toward the cursor instead of
+// toward the canvas's top-left corner.
+function zoomBy(delta, clientX, clientY) {
+  const oldScale = zoomScale;
+  const newScale = clampScale(oldScale + delta);
+  if (newScale === oldScale) return;
+  const rect = treeContainer.getBoundingClientRect();
+  const cx = clientX - rect.left;
+  const cy = clientY - rect.top;
+  panX = cx - (cx - panX) * (newScale / oldScale);
+  panY = cy - (cy - panY) * (newScale / oldScale);
+  zoomScale = newScale;
+  applyZoomPan();
+}
+
+function centerViewOn(person, visiblePeople) {
+  if (!person) return;
+  const { pos } = computeLayout(visiblePeople);
+  const at = pos.get(person.id);
+  if (!at) return;
+  const rect = treeContainer.getBoundingClientRect();
+  panX = rect.width / 2 - (at.x + CARD_W / 2) * zoomScale;
+  panY = rect.height / 3 - at.y * zoomScale;
+}
+
+treeContainer.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 0.12 : -0.12, e.clientX, e.clientY);
+}, { passive: false });
+
+treeContainer.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.person-card')) return; // let card clicks through untouched
+  isPanning = true;
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+  panOriginX = panX;
+  panOriginY = panY;
+  treeContainer.classList.add('grabbing');
+});
+window.addEventListener('mousemove', (e) => {
+  if (!isPanning) return;
+  panX = panOriginX + (e.clientX - panStartX);
+  panY = panOriginY + (e.clientY - panStartY);
+  applyZoomPan();
+});
+window.addEventListener('mouseup', () => {
+  isPanning = false;
+  treeContainer.classList.remove('grabbing');
+});
+
+// Single-finger touch pan (tablets/phones); pinch-to-zoom isn't handled,
+// the on-screen +/− buttons cover zoom on touch devices.
+treeContainer.addEventListener('touchstart', (e) => {
+  if (e.target.closest('.person-card') || e.touches.length !== 1) return;
+  isPanning = true;
+  panStartX = e.touches[0].clientX;
+  panStartY = e.touches[0].clientY;
+  panOriginX = panX;
+  panOriginY = panY;
+}, { passive: true });
+treeContainer.addEventListener('touchmove', (e) => {
+  if (!isPanning || e.touches.length !== 1) return;
+  panX = panOriginX + (e.touches[0].clientX - panStartX);
+  panY = panOriginY + (e.touches[0].clientY - panStartY);
+  applyZoomPan();
+}, { passive: true });
+treeContainer.addEventListener('touchend', () => { isPanning = false; });
+
+zoomInBtn.addEventListener('click', () => {
+  const rect = treeContainer.getBoundingClientRect();
+  zoomBy(0.2, rect.left + rect.width / 2, rect.top + rect.height / 2);
+});
+zoomOutBtn.addEventListener('click', () => {
+  const rect = treeContainer.getBoundingClientRect();
+  zoomBy(-0.2, rect.left + rect.width / 2, rect.top + rect.height / 2);
+});
+zoomResetBtn.addEventListener('click', () => {
+  zoomScale = 1;
+  hasCenteredOnce = false;
+  renderTreeNow();
+});
 
 function flashSaved() {
   saveStatus.textContent = 'Guardado ✓';
@@ -659,6 +777,9 @@ searchInput.addEventListener('input', () => {
         searchInput.value = '';
         searchResults.hidden = true;
         renderTreeNow();
+        const visiblePeople = showBernalToggle.checked ? people : people.filter((p) => !inLawBranchIds.has(p.id));
+        centerViewOn(visiblePeople.find((p) => p.id === selectedId), visiblePeople);
+        applyZoomPan();
       });
     });
   }
