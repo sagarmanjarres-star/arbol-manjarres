@@ -62,31 +62,108 @@ function parentKey(p) {
   return (p.parentIds || []).slice().sort().join(',');
 }
 
-// Sorts a sibling group chronologically (as before), then — if the tree's
-// founder is among them — moves them to the middle of the group instead of
-// wherever their entry order landed them. The founder made this tree for
-// the whole family and is meant to read as its center, not drift to one
-// side as more siblings get added around them later.
-function sortSiblingsCentered(members) {
+// How much horizontal room each person's own subtree will eventually need,
+// approximated as 1 + total descendant count (a proxy for the real pixel
+// width computed later in computeReservedWidths, which isn't available yet
+// at ordering time). Used only to center the founder by actual visual
+// weight instead of by raw sibling count.
+function computeDescendantWeights(people) {
+  const childrenOf = new Map();
+  for (const p of people) {
+    for (const pid of p.parentIds || []) {
+      if (!childrenOf.has(pid)) childrenOf.set(pid, []);
+      childrenOf.get(pid).push(p.id);
+    }
+  }
+  const memo = new Map();
+  function weight(id, visiting) {
+    if (memo.has(id)) return memo.get(id);
+    if (visiting.has(id)) return 1; // guards against bad/circular data
+    visiting.add(id);
+    let total = 1;
+    for (const cid of childrenOf.get(id) || []) total += weight(cid, visiting);
+    visiting.delete(id);
+    memo.set(id, total);
+    return total;
+  }
+  for (const p of people) weight(p.id, new Set());
+  return memo;
+}
+
+// The founder's own direct ancestors, one generation at a time (the founder
+// made this tree for the whole family and is meant to read as its visual
+// center — but "center the founder" only actually centers the diagram if
+// every ancestor on the way up to the tree's root is ALSO kept centered
+// among their own siblings, since it's their card position each generation
+// inherits its horizontal anchor from). Includes the founder's own id.
+function computeFounderPathIds(people) {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const founder = people.find((p) => p.founder);
+  const path = new Set();
+  if (!founder) return path;
+  let frontier = [founder.id];
+  while (frontier.length) {
+    const next = [];
+    for (const id of frontier) {
+      if (path.has(id)) continue;
+      path.add(id);
+      for (const pid of byId.get(id)?.parentIds || []) next.push(pid);
+    }
+    frontier = next;
+  }
+  return path;
+}
+
+// Sorts a sibling group chronologically (as before), then — if one of the
+// founder's direct ancestors (or the founder themself) is among them —
+// moves that person next to the point that splits the group's total
+// descendant weight roughly in half, instead of wherever chronological
+// order or raw sibling count landed them. See computeFounderPathIds above
+// for why this has to apply at every generation, not just the founder's own.
+function sortSiblingsCentered(members, weights, pathIds) {
   const sorted = members.slice().sort((a, b) => (a.createdAtMs || 0) - (b.createdAtMs || 0));
-  const founderIdx = sorted.findIndex((m) => m.founder);
-  if (founderIdx === -1) return sorted;
-  const [founder] = sorted.splice(founderIdx, 1);
-  sorted.splice(Math.floor(sorted.length / 2), 0, founder);
+  const targetIdx = pathIds ? sorted.findIndex((m) => pathIds.has(m.id)) : -1;
+  if (targetIdx === -1) return sorted;
+  const [target] = sorted.splice(targetIdx, 1);
+  if (!sorted.length) {
+    sorted.push(target);
+    return sorted;
+  }
+  const w = sorted.map((m) => weights?.get(m.id) ?? 1);
+  const total = w.reduce((a, b) => a + b, 0);
+  let running = 0;
+  let insertAt = sorted.length;
+  for (let i = 0; i < w.length; i++) {
+    running += w[i];
+    if (running >= total / 2) { insertAt = i + 1; break; }
+  }
+  sorted.splice(insertAt, 0, target);
   return sorted;
 }
 
 function orderRows(people, levels) {
   const byId = new Map(people.map((p) => [p.id, p]));
+  const weights = computeDescendantWeights(people);
+  // Reordering by ancestor path pulls each generation's cards toward their
+  // own weight-balanced center, but it only helps at the founder's own
+  // level — applying it a generation or two further up as well started
+  // fighting the width-reservation system (a reordered ancestor's block no
+  // longer lines up with where its own reserved-width children were
+  // expected, leaving dead gaps in the row below). So it's scoped to
+  // exactly the founder's own level.
+  const founder = people.find((p) => p.founder);
+  const founderLevel = founder ? levels.get(founder.id) : -1;
+  const pathIds = computeFounderPathIds(people);
   const maxLevel = Math.max(0, ...people.map((p) => levels.get(p.id)));
   const rows = [];
 
-  const level0 = sortSiblingsCentered(people.filter((p) => levels.get(p.id) === 0));
+  const level0 = sortSiblingsCentered(people.filter((p) => levels.get(p.id) === 0), weights, founderLevel === 0 ? pathIds : undefined);
   rows[0] = level0.map((p) => p.id);
 
   for (let L = 1; L <= maxLevel; L++) {
     const prevIndex = new Map((rows[L - 1] || []).map((id, i) => [id, i]));
     const peopleAtL = people.filter((p) => levels.get(p.id) === L);
+    const levelPathIds = L === founderLevel ? pathIds : undefined;
 
     const groups = new Map();
     for (const p of peopleAtL) {
@@ -99,7 +176,7 @@ function orderRows(people, levels) {
       const parentIds = key ? key.split(',') : [];
       const positions = parentIds.map((id) => prevIndex.get(id)).filter((v) => v !== undefined);
       const avgPos = positions.length ? positions.reduce((a, b) => a + b, 0) / positions.length : Infinity;
-      return { avgPos, members: sortSiblingsCentered(members) };
+      return { avgPos, members: sortSiblingsCentered(members, weights, levelPathIds) };
     });
     groupList.sort((a, b) => a.avgPos - b.avgPos);
 
