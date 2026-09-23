@@ -137,7 +137,12 @@ function renderTreeNow() {
   const visiblePeople = showBernalToggle.checked
     ? people
     : people.filter((p) => !inLawBranchIds.has(p.id));
-  renderTree(treeContainer, visiblePeople, { selectedId, onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }) });
+  renderTree(treeContainer, visiblePeople, {
+    selectedId,
+    onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }),
+    collapsedKeys,
+    onToggleCollapse,
+  });
   if (!hasCenteredOnce && visiblePeople.length) {
     hasCenteredOnce = true;
     centerViewOn(visiblePeople.find((p) => p.founder) || visiblePeople[0], visiblePeople);
@@ -146,6 +151,65 @@ function renderTreeNow() {
 }
 
 let inLawBranchIds = new Set();
+
+// ---------- Collapse/expand branches ----------
+// A branch is identified by its parentKey (same joined-id string tree.js
+// uses for a couple's children) rather than a single person id, so
+// collapsing a couple's branch collapses it for both of them, and a person
+// with children from two different partners can collapse just one of those
+// branches independently. Persisted per-browser (not synced to Firestore —
+// it's just a screen decluttering preference, not family data).
+const COLLAPSED_KEYS_STORAGE_KEY = 'familyTree.collapsedKeys';
+
+function loadCollapsedKeys() {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEYS_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedKeys() {
+  try {
+    localStorage.setItem(COLLAPSED_KEYS_STORAGE_KEY, JSON.stringify([...collapsedKeys]));
+  } catch {
+    // Private browsing / storage full — collapse state just won't persist.
+  }
+}
+
+let collapsedKeys = loadCollapsedKeys();
+
+function onToggleCollapse(key) {
+  if (collapsedKeys.has(key)) collapsedKeys.delete(key);
+  else collapsedKeys.add(key);
+  saveCollapsedKeys();
+  renderTreeNow();
+}
+
+// Un-collapses every ancestor branch above this person so they're actually
+// visible — used before jumping to a search result, since otherwise
+// clicking a match hidden inside a collapsed branch would silently do
+// nothing. Returns whether anything changed.
+function ensureExpandedTo(personId) {
+  const byId = new Map(people.map((p) => [p.id, p]));
+  let changed = false;
+  const queue = [personId];
+  const seen = new Set();
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const parentIds = byId.get(id)?.parentIds || [];
+    if (parentIds.length) {
+      const key = parentIds.slice().sort().join(',');
+      if (collapsedKeys.delete(key)) changed = true;
+      for (const pid of parentIds) queue.push(pid);
+    }
+  }
+  if (changed) saveCollapsedKeys();
+  return changed;
+}
 
 showBernalToggle.addEventListener('change', renderTreeNow);
 
@@ -194,7 +258,7 @@ function zoomBy(delta, clientX, clientY) {
 
 function centerViewOn(person, visiblePeople) {
   if (!person) return;
-  const { pos } = computeLayout(visiblePeople);
+  const { pos } = computeLayout(visiblePeople, collapsedKeys);
   const at = pos.get(person.id);
   if (!at) return;
   const rect = treeContainer.getBoundingClientRect();
@@ -780,6 +844,7 @@ searchInput.addEventListener('input', () => {
         selectedId = btn.dataset.id;
         searchInput.value = '';
         searchResults.hidden = true;
+        ensureExpandedTo(selectedId);
         renderTreeNow();
         const visiblePeople = showBernalToggle.checked ? people : people.filter((p) => !inLawBranchIds.has(p.id));
         centerViewOn(visiblePeople.find((p) => p.id === selectedId), visiblePeople);

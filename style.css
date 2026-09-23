@@ -249,6 +249,38 @@ button {
   pointer-events: none;
 }
 
+.tree-toggle {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2.5px solid var(--green);
+  color: var(--green-dark);
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 3;
+}
+.tree-toggle:hover, .tree-toggle:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+.tree-toggle.is-collapsed {
+  width: auto;
+  min-width: 34px;
+  padding: 0 10px;
+  border-radius: 17px;
+  background: var(--green-dark);
+  color: var(--cream);
+  border-color: var(--green-dark);
+  font-size: 14px;
+}
+
 .link { stroke: var(--ink-soft); stroke-width: 2.5; }
 .link-spouse { stroke: var(--gold); stroke-width: 4; }
 .link-spouse.link-former { stroke-dasharray: 8 6; opacity: 0.75; }
@@ -596,6 +628,10 @@ fieldset legend {
   .print-page-crop .tree-canvas { transform-origin: top left; }
 
   .person-card { box-shadow: none; border-width: 1.5px; break-inside: avoid; }
+  /* Printing always shows the whole tree regardless of on-screen collapse
+     state (see buildPrintPages in main.js, which lays out from the full
+     people list) — the toggle itself is a screen-only affordance. */
+  .tree-toggle { display: none !important; }
 }
 
 @media (max-width: 720px) {

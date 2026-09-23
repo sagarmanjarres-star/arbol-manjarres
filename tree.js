@@ -15,6 +15,55 @@ export const CARD_H = 128;
 const H_GAP = 48;
 const V_GAP = 130;
 const MARGIN = 60;
+const TOGGLE_SIZE = 34;
+
+// child id -> [parent ids] is already available as parentIds; this is the
+// reverse map (parent id -> [child ids]), used to walk a branch downward
+// when collapsing it.
+function computeChildrenOf(people) {
+  const map = new Map();
+  for (const p of people) {
+    for (const pid of p.parentIds || []) {
+      if (!map.has(pid)) map.set(pid, []);
+      map.get(pid).push(p.id);
+    }
+  }
+  return map;
+}
+
+// A collapsed branch is identified by its parentKey (e.g. a couple's joined
+// id, same string parentKey() below produces for their kids) rather than by
+// a single person id — that way collapsing a couple's branch collapses it
+// for both of them, and a person with children from two different partners
+// can collapse just one of those branches independently.
+function computeCollapseHiddenIds(people, collapsedKeys) {
+  const hidden = new Set();
+  if (!collapsedKeys || !collapsedKeys.size) return hidden;
+  const childrenOf = computeChildrenOf(people);
+  for (const key of collapsedKeys) {
+    const queue = people.filter((c) => parentKey(c) === key).map((c) => c.id);
+    while (queue.length) {
+      const id = queue.shift();
+      if (hidden.has(id)) continue;
+      hidden.add(id);
+      for (const cid of childrenOf.get(id) || []) queue.push(cid);
+    }
+  }
+  return hidden;
+}
+
+// Total number of people that would disappear if this key's branch were
+// collapsed — shown on the toggle's "+N" badge.
+function countDescendantsForKey(directChildren, childrenOf) {
+  let count = 0;
+  const queue = directChildren.map((c) => c.id);
+  while (queue.length) {
+    const id = queue.shift();
+    count++;
+    for (const cid of childrenOf.get(id) || []) queue.push(cid);
+  }
+  return count;
+}
 
 function computeLevels(people) {
   const byId = new Map(people.map((p) => [p.id, p]));
@@ -425,7 +474,7 @@ function svgEl(tag, attrs) {
 // The numeric layout only (rows + pixel positions), with no DOM — shared by
 // renderTree (the interactive view) and the print paginator, so both agree
 // on exactly where every card sits.
-export function computeLayout(people) {
+export function computeLayout(people, collapsedKeys = new Set()) {
   // Levels are computed over EVERYONE, including hidden generation
   // placeholders (see personCardInnerHtml / renderTree below) — a
   // placeholder with no other details still anchors its children's blood
@@ -433,7 +482,8 @@ export function computeLayout(people) {
   // visible people, so a placeholder never reserves a card-sized slot or
   // shows up as a blank box in the diagram.
   const levels = computeLevels(people);
-  const visible = people.filter((p) => !p.hidden);
+  const collapseHidden = computeCollapseHiddenIds(people, collapsedKeys);
+  const visible = people.filter((p) => !p.hidden && !collapseHidden.has(p.id));
   const rows = orderRows(visible, levels);
   const heights = measureCardHeights(visible);
   const { pos, canvasWidth, canvasHeight, rowHeights } = computePositions(rows, heights, visible);
@@ -456,7 +506,7 @@ function personCardInnerHtml(p) {
   `;
 }
 
-export function renderTree(container, people, { selectedId, onSelectPerson } = {}) {
+export function renderTree(container, people, { selectedId, onSelectPerson, collapsedKeys = new Set(), onToggleCollapse } = {}) {
   container.innerHTML = '';
 
   if (!people.length) {
@@ -468,7 +518,8 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
   }
 
   const byId = new Map(people.map((p) => [p.id, p]));
-  const { pos, canvasWidth, canvasHeight, heights, rows, rowHeights } = computeLayout(people);
+  const { pos, canvasWidth, canvasHeight, heights, rows, rowHeights } = computeLayout(people, collapsedKeys);
+  const childrenOfMap = computeChildrenOf(people);
   const cardBottom = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H);
   const cardCenterY = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H) / 2;
 
@@ -516,14 +567,6 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
     const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
 
-    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
-    if (!childPts.length) continue;
-    // Anchored off the child row itself (not the parents' row) so this
-    // still lands right above the children even when they ended up two or
-    // more rows down from their parents (a spouse pulled onto a much later
-    // row — see computeLevels).
-    const barY = Math.min(...childPts.map((pt) => pt.y)) - V_GAP / 2;
-
     // When the two co-parents are each other's spouse, start the drop line
     // at their marriage line instead of below their cards — anchorX already
     // sits at that line's own midpoint (the gap between the two cards), so
@@ -535,6 +578,36 @@ export function renderTree(container, people, { selectedId, onSelectPerson } = {
     const dropStartY = areSpouses
       ? (cardCenterY(parentA) + cardCenterY(parentB)) / 2
       : bottomY;
+
+    const isCollapsed = collapsedKeys.has(key);
+    if (onToggleCollapse) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'tree-toggle' + (isCollapsed ? ' is-collapsed' : '');
+      toggle.textContent = isCollapsed ? '+' + countDescendantsForKey(children, childrenOfMap) : '−';
+      toggle.setAttribute('aria-label', isCollapsed ? 'Mostrar descendientes' : 'Ocultar descendientes');
+      toggle.style.top = (dropStartY + (V_GAP - TOGGLE_SIZE) / 2) + 'px';
+      if (isCollapsed) {
+        toggle.style.left = anchorX + 'px';
+        toggle.style.transform = 'translateX(-50%)';
+      } else {
+        toggle.style.left = (anchorX - TOGGLE_SIZE / 2) + 'px';
+      }
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onToggleCollapse(key);
+      });
+      wrapper.appendChild(toggle);
+    }
+    if (isCollapsed) continue; // descendants excluded from `pos` above — nothing left to connect
+
+    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
+    if (!childPts.length) continue;
+    // Anchored off the child row itself (not the parents' row) so this
+    // still lands right above the children even when they ended up two or
+    // more rows down from their parents (a spouse pulled onto a much later
+    // row — see computeLevels).
+    const barY = Math.min(...childPts.map((pt) => pt.y)) - V_GAP / 2;
 
     const parentLevel = Math.max(...parentIds.map((id) => idToRow.get(id)));
     const childLevel = Math.min(...children.filter((c) => idToRow.has(c.id)).map((c) => idToRow.get(c.id)));
