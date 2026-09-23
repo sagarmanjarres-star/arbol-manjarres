@@ -204,7 +204,11 @@ function centerViewOn(person, visiblePeople) {
 
 treeContainer.addEventListener('wheel', (e) => {
   e.preventDefault();
-  zoomBy(e.deltaY < 0 ? 0.12 : -0.12, e.clientX, e.clientY);
+  // deltaY magnitude varies a lot between a mouse wheel notch (~100) and a
+  // trackpad's stream of small events (~1-10), so scale the step by it
+  // instead of using a fixed amount — otherwise trackpad zoom feels frantic.
+  const step = Math.min(0.08, Math.abs(e.deltaY) * 0.008);
+  zoomBy(e.deltaY < 0 ? step : -step, e.clientX, e.clientY);
 }, { passive: false });
 
 treeContainer.addEventListener('mousedown', (e) => {
