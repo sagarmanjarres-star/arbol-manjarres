@@ -109,6 +109,22 @@ button {
   padding: 8px;
 }
 
+.toggle-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-checkbox input {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+}
+
 .search-box {
   position: relative;
   flex: 1;

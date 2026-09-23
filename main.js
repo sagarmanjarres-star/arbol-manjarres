@@ -27,6 +27,7 @@ const savePdfBtn = document.getElementById('savePdfBtn');
 const printA3Btn = document.getElementById('printA3Btn');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
+const showBernalToggle = document.getElementById('showBernalToggle');
 
 const pdfTipModal = document.getElementById('pdfTipModal');
 const pdfTipContinueBtn = document.getElementById('pdfTipContinueBtn');
@@ -73,14 +74,72 @@ function childrenOf(id) {
   return people.filter((p) => (p.parentIds || []).includes(id));
 }
 
+// The founder's (Delfín's) spouse brings her own blood family into the tree
+// (parents, siblings, nieces/nephews...) even though they aren't Manjarrés
+// blood. This computes that in-law branch so it can be hidden by default —
+// everyone descended from the spouse's own ancestors, minus the spouse
+// herself and minus whatever she shares in blood with the founder (their
+// children together and onward), which always stays visible.
+function computeInLawBranchIds(allPeople) {
+  const byId = new Map(allPeople.map((p) => [p.id, p]));
+  const founder = allPeople.find((p) => p.founder);
+  if (!founder) return new Set();
+
+  function ancestorsOf(id) {
+    const out = new Set();
+    const p = byId.get(id);
+    for (const pid of p?.parentIds || []) {
+      if (!byId.has(pid) || out.has(pid)) continue;
+      out.add(pid);
+      for (const a of ancestorsOf(pid)) out.add(a);
+    }
+    return out;
+  }
+
+  function descendantsOf(rootIds) {
+    const all = new Set(rootIds);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of allPeople) {
+        if (all.has(p.id)) continue;
+        if ((p.parentIds || []).some((pid) => all.has(pid))) {
+          all.add(p.id);
+          changed = true;
+        }
+      }
+    }
+    return all;
+  }
+
+  const sharedClan = descendantsOf([founder.id]);
+  const hidden = new Set();
+  for (const s of founder.spouses || []) {
+    if (!byId.has(s.id)) continue;
+    const spouseClan = descendantsOf([s.id, ...ancestorsOf(s.id)]);
+    for (const id of spouseClan) {
+      if (id !== s.id && !sharedClan.has(id)) hidden.add(id);
+    }
+  }
+  return hidden;
+}
+
 subscribePeople((newPeople) => {
   people = newPeople.map(normalize);
+  inLawBranchIds = computeInLawBranchIds(people);
   renderTreeNow();
 });
 
 function renderTreeNow() {
-  renderTree(treeContainer, people, { selectedId, onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }) });
+  const visiblePeople = showBernalToggle.checked
+    ? people
+    : people.filter((p) => !inLawBranchIds.has(p.id));
+  renderTree(treeContainer, visiblePeople, { selectedId, onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }) });
 }
+
+let inLawBranchIds = new Set();
+
+showBernalToggle.addEventListener('change', renderTreeNow);
 
 function flashSaved() {
   saveStatus.textContent = 'Guardado ✓';
