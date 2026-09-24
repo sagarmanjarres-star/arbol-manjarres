@@ -374,6 +374,13 @@ button {
   margin-top: 2px;
 }
 
+.death-cross {
+  display: inline-block;
+  width: 1.3em;
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .person-death-place {
   font-size: 15px;
   color: var(--ink-soft);

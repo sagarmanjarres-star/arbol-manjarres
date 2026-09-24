@@ -566,7 +566,7 @@ function personCardInnerHtml(p) {
         <div class="person-name">${escapeHtml(p.name)}</div>
         ${years ? `<div class="person-years">${escapeHtml(years)}</div>` : ''}
         ${p.location ? `<div class="person-location">📍 ${escapeHtml(p.location)}</div>` : ''}
-        ${p.deathPlace ? `<div class="person-death-place">📍 ${escapeHtml(p.deathPlace)}</div>` : ''}
+        ${p.deathPlace ? `<div class="person-death-place"><span class="death-cross">✝︎</span>${escapeHtml(p.deathPlace)}</div>` : ''}
       </div>
     </div>
   `;
