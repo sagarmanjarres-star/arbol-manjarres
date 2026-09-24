@@ -8,6 +8,7 @@ import {
   undoDelete,
 } from './store.js';
 import { renderTree, computeLayout, CARD_W } from './tree.js';
+import { renderAltView, setFocusId } from './views.js';
 import { computePrintPages } from './print-layout.js';
 import { MONTHS_ES_LONG } from './dates.js';
 
@@ -31,6 +32,9 @@ const showBernalToggle = document.getElementById('showBernalToggle');
 const zoomInBtn = document.getElementById('zoomInBtn');
 const zoomOutBtn = document.getElementById('zoomOutBtn');
 const zoomResetBtn = document.getElementById('zoomResetBtn');
+const viewSelect = document.getElementById('viewSelect');
+const altContainer = document.getElementById('altContainer');
+const zoomControls = document.querySelector('.zoom-controls');
 
 const pdfTipModal = document.getElementById('pdfTipModal');
 const pdfTipContinueBtn = document.getElementById('pdfTipContinueBtn');
@@ -148,10 +152,58 @@ subscribePeople((newPeople) => {
   renderTreeNow();
 });
 
+// Which of the ways of looking at the family is showing: the classic tree
+// ('tree') or one of the alternative views from views.js. Remembered per
+// browser; the family data itself is the same in all of them.
+const VIEW_STORAGE_KEY = 'familyTree.view';
+const VALID_VIEWS = ['tree', 'net', 'rad', 'foc'];
+let currentView = (() => {
+  try {
+    const v = localStorage.getItem(VIEW_STORAGE_KEY);
+    return VALID_VIEWS.includes(v) ? v : 'tree';
+  } catch { return 'tree'; }
+})();
+viewSelect.value = currentView;
+
+function applyViewChrome() {
+  const isTree = currentView === 'tree';
+  treeContainer.hidden = !isTree;
+  zoomControls.hidden = !isTree;
+  altContainer.hidden = isTree;
+  for (const b of [printBtn, savePdfBtn, printA3Btn]) {
+    b.disabled = !isTree;
+    b.title = isTree ? '' : 'Cambia a la vista "Árbol (clásico)" para imprimir';
+  }
+}
+
+viewSelect.addEventListener('change', () => {
+  currentView = viewSelect.value;
+  try { localStorage.setItem(VIEW_STORAGE_KEY, currentView); } catch { /* not persisted */ }
+  renderTreeNow();
+});
+
+let altRenderToken = 0;
+
 function renderTreeNow() {
   const visiblePeople = showBernalToggle.checked
     ? people
     : people.filter((p) => !inLawBranchIds.has(p.id));
+  applyViewChrome();
+
+  if (currentView !== 'tree') {
+    const token = ++altRenderToken;
+    renderAltView(currentView, altContainer, visiblePeople, {
+      selectedId,
+      inLawIds: inLawBranchIds,
+      isStale: () => token !== altRenderToken,
+      onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }),
+      onFocusChange: (id) => { selectedId = id; },
+    }).catch(() => {
+      if (token === altRenderToken) altContainer.textContent = 'No se pudo cargar esta vista. Revisa tu conexión a internet e inténtalo de nuevo.';
+    });
+    return;
+  }
+
   renderTree(treeContainer, visiblePeople, {
     selectedId,
     onSelectPerson: (id) => openPersonModal({ mode: 'edit', personId: id }),
@@ -859,6 +911,11 @@ searchInput.addEventListener('input', () => {
         selectedId = btn.dataset.id;
         searchInput.value = '';
         searchResults.hidden = true;
+        if (currentView !== 'tree') {
+          if (currentView === 'foc') setFocusId(selectedId);
+          renderTreeNow();
+          return;
+        }
         ensureExpandedTo(selectedId);
         renderTreeNow();
         const visiblePeople = showBernalToggle.checked ? people : people.filter((p) => !inLawBranchIds.has(p.id));

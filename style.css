@@ -281,6 +281,104 @@ button {
   font-size: 14px;
 }
 
+/* ---------- Alternative views (views.js) ---------- */
+
+:root {
+  --c-manj: var(--green);
+  --c-delfin: var(--gold);
+  --c-bernal: var(--red);
+}
+
+.view-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.view-select select {
+  font: inherit;
+  font-size: 17px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--cream);
+  color: var(--ink);
+}
+
+.alt-container {
+  position: relative;
+  overflow: hidden;
+  height: calc(100vh - 220px);
+  background: var(--cream);
+}
+.alt-container[hidden] { display: none; }
+.alt-svg { display: block; width: 100%; height: 100%; }
+.alt-lbl {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--cream);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.alt-sub { font-size: 13px; fill: var(--ink-soft); }
+.alt-row-label {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  fill: var(--ink-soft);
+}
+.alt-info {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  z-index: 5;
+  max-width: 300px;
+  padding: 12px 16px;
+  background: var(--paper);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 4px 14px var(--shadow);
+  font-size: 16px;
+}
+.alt-info[hidden] { display: none; }
+.alt-info b { display: block; font-family: var(--font); font-size: 19px; margin-bottom: 4px; }
+.alt-info span { color: var(--ink-soft); }
+.alt-info-edit { margin-top: 10px; padding: 8px 16px; font-size: 16px; }
+.alt-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 5;
+  padding: 6px 12px;
+  background: var(--paper);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+.alt-bar {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.alt-bar select { font: inherit; font-size: 16px; padding: 6px 8px; border-radius: 8px; border: 2px solid var(--border); background: var(--cream); color: var(--ink); }
+
 .link { stroke: var(--ink-soft); stroke-width: 2.5; }
 .link-spouse { stroke: var(--gold); stroke-width: 4; }
 .link-spouse.link-former { stroke-dasharray: 8 6; opacity: 0.75; }

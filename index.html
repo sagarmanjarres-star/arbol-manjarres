@@ -29,6 +29,16 @@
       Mostrar familia de Mercedes (rama Bernal)
     </label>
 
+    <label class="view-select">
+      Vista
+      <select id="viewSelect">
+        <option value="tree">Árbol (clásico)</option>
+        <option value="net">Red de burbujas</option>
+        <option value="rad">Radial</option>
+        <option value="foc">Enfoque en una persona</option>
+      </select>
+    </label>
+
     <button id="printBtn" class="btn btn-secondary btn-big">🖨️ Imprimir árbol</button>
     <button id="savePdfBtn" class="btn btn-secondary btn-big">💾 Guardar como PDF</button>
     <button id="printA3Btn" class="btn btn-secondary btn-big">📄 Preparar para imprimir en A3</button>
@@ -36,6 +46,7 @@
 
   <div class="tree-viewport-wrap">
     <main id="treeContainer" class="tree-container" aria-label="Diagrama del árbol genealógico"></main>
+    <div id="altContainer" class="alt-container" aria-label="Vista alternativa de la familia" hidden></div>
     <div class="zoom-controls">
       <button id="zoomInBtn" class="zoom-btn" type="button" title="Acercar">+</button>
       <button id="zoomOutBtn" class="zoom-btn" type="button" title="Alejar">−</button>
