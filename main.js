@@ -124,6 +124,21 @@ function computeInLawBranchIds(allPeople) {
       if (id !== s.id && !sharedClan.has(id)) hidden.add(id);
     }
   }
+  // Someone married into the hidden branch (no parents recorded, and every
+  // spouse is hidden) would otherwise be left floating alone at the top of
+  // the diagram with nothing to connect to, so they're hidden too.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const p of allPeople) {
+      if (hidden.has(p.id) || (p.parentIds || []).length) continue;
+      const spouses = (p.spouses || []).filter((s) => byId.has(s.id));
+      if (spouses.length && spouses.every((s) => hidden.has(s.id))) {
+        hidden.add(p.id);
+        changed = true;
+      }
+    }
+  }
   return hidden;
 }
 

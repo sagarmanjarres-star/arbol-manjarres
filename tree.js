@@ -104,6 +104,31 @@ function computeLevels(people) {
     }
   }
 
+  // A person with no recorded parents whose children all sit further down
+  // (typically the parents of someone who married into the family) belongs
+  // on the row right above their earliest child — not stranded at the very
+  // top of the diagram with a line that has to run past everyone else.
+  const childrenOf = computeChildrenOf(people);
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const p of people) {
+      if ((p.parentIds || []).some((pid) => byId.has(pid))) continue;
+      const kids = childrenOf.get(p.id) || [];
+      if (!kids.length) continue;
+      const target = Math.min(...kids.map((k) => memo.get(k))) - 1;
+      if (target > memo.get(p.id)) { memo.set(p.id, target); changed = true; }
+    }
+    for (const p of people) {
+      for (const s of p.spouses || []) {
+        if (!byId.has(s.id)) continue;
+        const max = Math.max(memo.get(p.id), memo.get(s.id));
+        if (memo.get(p.id) !== max) { memo.set(p.id, max); changed = true; }
+        if (memo.get(s.id) !== max) { memo.set(s.id, max); changed = true; }
+      }
+    }
+  }
+
   return memo;
 }
 
@@ -221,12 +246,53 @@ function orderRows(people, levels) {
       groups.get(key).push(p);
     }
 
+    const rootMembers = groups.get('') || [];
+    groups.delete('');
     const groupList = [...groups.entries()].map(([key, members]) => {
       const parentIds = key ? key.split(',') : [];
       const positions = parentIds.map((id) => prevIndex.get(id)).filter((v) => v !== undefined);
       const avgPos = positions.length ? positions.reduce((a, b) => a + b, 0) / positions.length : Infinity;
       return { avgPos, members: sortSiblingsCentered(members, weights, levelPathIds) };
     });
+
+    // Parentless people on this row (see the lowering in computeLevels) go
+    // next to the family of their child's spouse, so the line down to that
+    // child is short instead of crossing the whole row.
+    const groupOfPerson = new Map();
+    for (const g of groupList) for (const m of g.members) groupOfPerson.set(m.id, g);
+    const components = [];
+    const seenRoot = new Set();
+    for (const m of rootMembers) {
+      if (seenRoot.has(m.id)) continue;
+      const comp = [];
+      const stack = [m];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (seenRoot.has(cur.id)) continue;
+        seenRoot.add(cur.id);
+        comp.push(cur);
+        for (const s of cur.spouses || []) {
+          const sp = rootMembers.find((r) => r.id === s.id);
+          if (sp) stack.push(sp);
+        }
+      }
+      components.push(comp);
+    }
+    for (const comp of components) {
+      let avgPos = Infinity;
+      outer: for (const m of comp) {
+        for (const c of people) {
+          if (!(c.parentIds || []).includes(m.id)) continue;
+          for (const s of c.spouses || []) {
+            for (const pid of byId.get(s.id)?.parentIds || []) {
+              const g = groupOfPerson.get(pid);
+              if (g && Number.isFinite(g.avgPos)) { avgPos = g.avgPos + 0.001; break outer; }
+            }
+          }
+        }
+      }
+      groupList.push({ avgPos, members: sortSiblingsCentered(comp, weights, levelPathIds) });
+    }
     groupList.sort((a, b) => a.avgPos - b.avgPos);
 
     let row = groupList.flatMap((g) => g.members.map((m) => m.id));
@@ -506,6 +572,153 @@ function personCardInnerHtml(p) {
   `;
 }
 
+// Every line and toggle position the diagram draws, as plain data (no DOM),
+// so renderTree just paints them and the layout can be audited offline for
+// lines that cross unrelated cards or merge with another family's line.
+// Lines only ever join parents to their children, or spouses to each other.
+export function computeConnectors(people, layout, collapsedKeys = new Set()) {
+  const { pos, canvasWidth, heights, rows, rowHeights } = layout;
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const childrenOfMap = computeChildrenOf(people);
+  const cardBottom = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H);
+  const cardCenterY = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H) / 2;
+
+  const idToRow = new Map();
+  rows.forEach((row, level) => { for (const id of row) idToRow.set(id, level); });
+  // A married-in spouse can sit several rows below their own parents (see
+  // computeLevels). A straight drop would cut through whoever occupies the
+  // rows in between, so those connectors detour along the empty strip at
+  // the canvas edge instead.
+  const railBaseX = canvasWidth - MARGIN / 2;
+  const rowBottom = (level) => pos.get(rows[level][0]).y + rowHeights[level];
+
+  const segments = [];
+  const toggles = [];
+  const groups = [];
+
+  const seenGroups = new Set();
+  for (const p of people) {
+    const key = parentKey(p);
+    if (!key || seenGroups.has(key)) continue;
+    seenGroups.add(key);
+
+    const children = people.filter((c) => parentKey(c) === key);
+    if (!children.length) continue;
+    // Hidden placeholders and collapsed descendants have no `pos`, so a
+    // group whose parents aren't on screen, or whose children are all
+    // hidden, draws nothing.
+    const parentIds = key.split(',').filter((id) => byId.has(id) && pos.has(id));
+    if (!parentIds.length) continue;
+
+    const parentPts = parentIds.map((id) => pos.get(id));
+    const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
+    const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
+
+    // Co-parents who are each other's spouse: start the drop at their
+    // marriage line (anchorX is already that line's midpoint).
+    const [parentA, parentB] = parentIds;
+    const areSpouses = parentIds.length === 2
+      && (byId.get(parentA).spouses || []).some((s) => s.id === parentB);
+    const dropStartY = areSpouses
+      ? (cardCenterY(parentA) + cardCenterY(parentB)) / 2
+      : bottomY;
+
+    const isCollapsed = collapsedKeys.has(key);
+    toggles.push({
+      key,
+      collapsed: isCollapsed,
+      count: isCollapsed ? countDescendantsForKey(children, childrenOfMap) : 0,
+      x: anchorX,
+      y: dropStartY + (V_GAP - TOGGLE_SIZE) / 2,
+    });
+    if (isCollapsed) continue;
+
+    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
+    if (!childPts.length) continue;
+    const childXs = childPts.map((pt) => pt.x + CARD_W / 2);
+    const parentLevel = Math.max(...parentIds.map((id) => idToRow.get(id)));
+    const childLevel = Math.min(...children.filter((c) => idToRow.has(c.id)).map((c) => idToRow.get(c.id)));
+    groups.push({
+      key,
+      parentIds,
+      childIds: children.filter((c) => pos.has(c.id)).map((c) => c.id),
+      anchorX,
+      dropStartY,
+      childPts,
+      childXs,
+      childTopY: Math.min(...childPts.map((pt) => pt.y)),
+      barLeft: Math.min(anchorX, ...childXs),
+      barRight: Math.max(anchorX, ...childXs),
+      parentLevel,
+      childLevel,
+      viaRail: childLevel > parentLevel + 1,
+    });
+  }
+
+  // Families whose child bars would sit at the same height and overlap
+  // horizontally get their own lane inside the gap, so one family's bar
+  // never runs into (and visually joins) another family's.
+  const byChildRow = new Map();
+  for (const g of groups) {
+    const k = Math.round(g.childTopY);
+    if (!byChildRow.has(k)) byChildRow.set(k, []);
+    byChildRow.get(k).push(g);
+  }
+  for (const list of byChildRow.values()) {
+    list.sort((a, b) => a.barLeft - b.barLeft);
+    const laneEnds = [];
+    for (const g of list) {
+      let lane = laneEnds.findIndex((end) => end < g.barLeft - 12);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(g.barRight); }
+      else laneEnds[lane] = g.barRight;
+      g.lane = lane;
+    }
+    const n = laneEnds.length;
+    const spacing = n > 1 ? Math.min(14, (V_GAP - 60) / (n - 1)) : 0;
+    for (const g of list) g.barY = g.childTopY - V_GAP / 2 + (g.lane - (n - 1) / 2) * spacing;
+  }
+
+  let railIndex = 0;
+  for (const g of groups) {
+    const seg = (x1, y1, x2, y2, kind) => segments.push({ kind, group: g.key, x1, y1, x2, y2 });
+    if (g.viaRail) {
+      const r = railIndex++;
+      const railX = railBaseX - r * 10;
+      const clearY = rowBottom(g.parentLevel) + 14 + r * 8;
+      seg(g.anchorX, g.dropStartY, g.anchorX, clearY, 'descent');
+      seg(g.anchorX, clearY, railX, clearY, 'descent');
+      seg(railX, clearY, railX, g.barY, 'descent');
+      seg(railX, g.barY, g.anchorX, g.barY, 'descent');
+    } else {
+      seg(g.anchorX, g.dropStartY, g.anchorX, g.barY, 'descent');
+    }
+    seg(g.barLeft, g.barY, g.barRight, g.barY, 'bar');
+    g.childPts.forEach((pt, i) => seg(g.childXs[i], g.barY, g.childXs[i], pt.y, 'descent'));
+  }
+
+  const drawnSpousePairs = new Set();
+  for (const p of people) {
+    for (const s of p.spouses || []) {
+      const pairKey = [p.id, s.id].sort().join('|');
+      if (drawnSpousePairs.has(pairKey) || !byId.has(s.id)) continue;
+      drawnSpousePairs.add(pairKey);
+      const a = pos.get(p.id);
+      const b = pos.get(s.id);
+      if (!a || !b) continue;
+      const leftId = a.x < b.x ? p.id : s.id;
+      const rightId = a.x < b.x ? s.id : p.id;
+      segments.push({
+        kind: s.status === 'former' ? 'spouse-former' : 'spouse',
+        group: pairKey,
+        x1: pos.get(leftId).x + CARD_W, y1: cardCenterY(leftId),
+        x2: pos.get(rightId).x, y2: cardCenterY(rightId),
+      });
+    }
+  }
+
+  return { segments, toggles, groups };
+}
+
 export function renderTree(container, people, { selectedId, onSelectPerson, collapsedKeys = new Set(), onToggleCollapse } = {}) {
   container.innerHTML = '';
 
@@ -517,23 +730,9 @@ export function renderTree(container, people, { selectedId, onSelectPerson, coll
     return;
   }
 
-  const byId = new Map(people.map((p) => [p.id, p]));
-  const { pos, canvasWidth, canvasHeight, heights, rows, rowHeights } = computeLayout(people, collapsedKeys);
-  const childrenOfMap = computeChildrenOf(people);
-  const cardBottom = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H);
-  const cardCenterY = (id) => pos.get(id).y + (heights.get(id) ?? CARD_H) / 2;
-
-  const idToRow = new Map();
-  rows.forEach((row, level) => { for (const id of row) idToRow.set(id, level); });
-  // A married-in spouse can get pulled several rows down from their own
-  // parents (see computeLevels). A straight vertical line from those
-  // parents down to that row would cut right through whoever else happens
-  // to occupy the intervening row(s) — this rail is a permanently empty
-  // strip along the canvas edge (every row is centered inside canvasWidth,
-  // so nothing is ever placed out here) that those connectors detour
-  // through instead, so they never look like they touch an unrelated card.
-  const railX = canvasWidth - MARGIN / 2;
-  const rowBottom = (level) => pos.get(rows[level][0]).y + rowHeights[level];
+  const layout = computeLayout(people, collapsedKeys);
+  const { pos, canvasWidth, canvasHeight } = layout;
+  const { segments, toggles } = computeConnectors(people, layout, collapsedKeys);
 
   const wrapper = document.createElement('div');
   wrapper.className = 'tree-canvas';
@@ -547,137 +746,35 @@ export function renderTree(container, people, { selectedId, onSelectPerson, coll
   });
   wrapper.appendChild(svg);
 
-  // Parent -> children connectors, grouped by exact parent-set.
-  const seenGroups = new Set();
-  for (const p of people) {
-    const key = parentKey(p);
-    if (!key || seenGroups.has(key)) continue;
-    seenGroups.add(key);
+  const CLASS_BY_KIND = {
+    descent: 'link link-descent',
+    bar: 'link link-bar',
+    spouse: 'link link-spouse',
+    'spouse-former': 'link link-spouse link-former',
+  };
+  for (const s of segments) {
+    svg.appendChild(svgEl('line', { x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, class: CLASS_BY_KIND[s.kind] }));
+  }
 
-    const children = people.filter((c) => parentKey(c) === key);
-    if (!children.length) continue;
-    // A hidden generation placeholder (see personCardInnerHtml/renderTree)
-    // has no card and no `pos` entry, so it's excluded here — a child whose
-    // only recorded parent is one of these gets no connector line at all
-    // above them, which is correct: there's nothing visible to anchor to.
-    const parentIds = key.split(',').filter((id) => byId.has(id) && pos.has(id));
-    if (!parentIds.length) continue;
-
-    const parentPts = parentIds.map((id) => pos.get(id));
-    const anchorX = parentPts.reduce((a, b) => a + b.x + CARD_W / 2, 0) / parentPts.length;
-    const bottomY = Math.max(...parentIds.map((id) => cardBottom(id)));
-
-    // When the two co-parents are each other's spouse, start the drop line
-    // at their marriage line instead of below their cards — anchorX already
-    // sits at that line's own midpoint (the gap between the two cards), so
-    // starting higher, at the marriage line itself, makes the drop read as
-    // growing out of it instead of floating in the empty gap below them.
-    const [parentA, parentB] = parentIds;
-    const areSpouses = parentIds.length === 2
-      && (byId.get(parentA).spouses || []).some((s) => s.id === parentB);
-    const dropStartY = areSpouses
-      ? (cardCenterY(parentA) + cardCenterY(parentB)) / 2
-      : bottomY;
-
-    const isCollapsed = collapsedKeys.has(key);
-    if (onToggleCollapse) {
+  if (onToggleCollapse) {
+    for (const t of toggles) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'tree-toggle' + (isCollapsed ? ' is-collapsed' : '');
-      toggle.textContent = isCollapsed ? '+' + countDescendantsForKey(children, childrenOfMap) : '−';
-      toggle.setAttribute('aria-label', isCollapsed ? 'Mostrar descendientes' : 'Ocultar descendientes');
-      toggle.style.top = (dropStartY + (V_GAP - TOGGLE_SIZE) / 2) + 'px';
-      if (isCollapsed) {
-        toggle.style.left = anchorX + 'px';
+      toggle.className = 'tree-toggle' + (t.collapsed ? ' is-collapsed' : '');
+      toggle.textContent = t.collapsed ? '+' + t.count : '−';
+      toggle.setAttribute('aria-label', t.collapsed ? 'Mostrar descendientes' : 'Ocultar descendientes');
+      toggle.style.top = t.y + 'px';
+      if (t.collapsed) {
+        toggle.style.left = t.x + 'px';
         toggle.style.transform = 'translateX(-50%)';
       } else {
-        toggle.style.left = (anchorX - TOGGLE_SIZE / 2) + 'px';
+        toggle.style.left = (t.x - TOGGLE_SIZE / 2) + 'px';
       }
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        onToggleCollapse(key);
+        onToggleCollapse(t.key);
       });
       wrapper.appendChild(toggle);
-    }
-    if (isCollapsed) continue; // descendants excluded from `pos` above — nothing left to connect
-
-    const childPts = children.map((c) => pos.get(c.id)).filter(Boolean);
-    if (!childPts.length) continue;
-    // Anchored off the child row itself (not the parents' row) so this
-    // still lands right above the children even when they ended up two or
-    // more rows down from their parents (a spouse pulled onto a much later
-    // row — see computeLevels).
-    const barY = Math.min(...childPts.map((pt) => pt.y)) - V_GAP / 2;
-
-    const parentLevel = Math.max(...parentIds.map((id) => idToRow.get(id)));
-    const childLevel = Math.min(...children.filter((c) => idToRow.has(c.id)).map((c) => idToRow.get(c.id)));
-
-    if (childLevel > parentLevel + 1) {
-      // The children's row isn't right below the parents' — route around
-      // whoever sits in the row(s) between them via the side rail instead
-      // of drawing straight through their cards.
-      const clearY = rowBottom(parentLevel);
-      svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: clearY, class: 'link link-descent' }));
-      svg.appendChild(svgEl('line', { x1: anchorX, y1: clearY, x2: railX, y2: clearY, class: 'link link-descent' }));
-      svg.appendChild(svgEl('line', { x1: railX, y1: clearY, x2: railX, y2: barY, class: 'link link-descent' }));
-      svg.appendChild(svgEl('line', { x1: railX, y1: barY, x2: anchorX, y2: barY, class: 'link link-descent' }));
-    } else {
-      svg.appendChild(svgEl('line', { x1: anchorX, y1: dropStartY, x2: anchorX, y2: barY, class: 'link link-descent' }));
-    }
-
-    const xs = childPts.map((pt) => pt.x + CARD_W / 2);
-    const barLeft = Math.min(anchorX, ...xs);
-    const barRight = Math.max(anchorX, ...xs);
-    svg.appendChild(svgEl('line', { x1: barLeft, y1: barY, x2: barRight, y2: barY, class: 'link link-bar' }));
-
-    for (const pt of childPts) {
-      const cx = pt.x + CARD_W / 2;
-      svg.appendChild(svgEl('line', { x1: cx, y1: barY, x2: cx, y2: pt.y, class: 'link link-descent' }));
-    }
-  }
-
-  // Spouse connectors.
-  const drawnSpousePairs = new Set();
-  for (const p of people) {
-    for (const s of p.spouses || []) {
-      const pairKey = [p.id, s.id].sort().join('|');
-      if (drawnSpousePairs.has(pairKey) || !byId.has(s.id)) continue;
-      drawnSpousePairs.add(pairKey);
-      const a = pos.get(p.id);
-      const b = pos.get(s.id);
-      if (!a || !b) continue;
-      const leftId = a.x < b.x ? p.id : s.id;
-      const rightId = a.x < b.x ? s.id : p.id;
-      const left = pos.get(leftId);
-      const right = pos.get(rightId);
-      const y1 = cardCenterY(leftId);
-      const y2 = cardCenterY(rightId);
-      const cls = s.status === 'former' ? 'link link-spouse link-former' : 'link link-spouse';
-      svg.appendChild(svgEl('line', { x1: left.x + CARD_W, y1, x2: right.x, y2, class: cls }));
-    }
-  }
-
-  // Sibling-only connectors (no shared parent already drawn above).
-  const drawnSiblingPairs = new Set();
-  for (const p of people) {
-    for (const sibId of p.siblingIds || []) {
-      const pairKey = [p.id, sibId].sort().join('|');
-      if (drawnSiblingPairs.has(pairKey) || !byId.has(sibId)) continue;
-      drawnSiblingPairs.add(pairKey);
-      const sib = byId.get(sibId);
-      if (parentKey(p) && parentKey(p) === parentKey(sib)) continue; // already connected via parents
-      const a = pos.get(p.id);
-      const b = pos.get(sibId);
-      if (!a || !b) continue;
-      const leftId = a.x < b.x ? p.id : sibId;
-      const rightId = a.x < b.x ? sibId : p.id;
-      const left = pos.get(leftId);
-      const right = pos.get(rightId);
-      const y1 = cardCenterY(leftId);
-      const y2 = cardCenterY(rightId);
-      svg.appendChild(svgEl('line', {
-        x1: left.x + CARD_W, y1, x2: right.x, y2, class: 'link link-sibling',
-      }));
     }
   }
 
@@ -699,7 +796,7 @@ export function renderTree(container, people, { selectedId, onSelectPerson, coll
   }
 
   container.appendChild(wrapper);
-  // Centering the selected card in view is main.js's job now — it pans/zooms
+  // Centering the selected card in view is main.js's job — it pans/zooms
   // the canvas via a CSS transform (see centerViewOn), since the container
   // clips (overflow: hidden) rather than natively scrolls.
 }
